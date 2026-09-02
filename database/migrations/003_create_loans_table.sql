@@ -1,0 +1,33 @@
+-- Migration 003: Create loans table
+CREATE TABLE IF NOT EXISTS loans (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  loan_id VARCHAR(20) NOT NULL UNIQUE,  -- Format: LN-001
+  borrower_id INT NOT NULL,
+  principal_amount DECIMAL(15,2) NOT NULL,
+  interest_rate DECIMAL(10,4) NOT NULL,
+  interest_rate_type ENUM('monthly', 'daily', 'flat') NOT NULL DEFAULT 'monthly',
+  tenure INT NOT NULL,
+  tenure_unit ENUM('days', 'months', 'years') NOT NULL DEFAULT 'months',
+  loan_given_date DATE NOT NULL,
+  due_date DATE NOT NULL,
+  total_expected_interest DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+  total_expected_repayment DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+  status ENUM('active', 'overdue', 'completed', 'cancelled') NOT NULL DEFAULT 'active',
+  notes TEXT NULL DEFAULT NULL,
+  created_by INT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP NULL DEFAULT NULL,
+  INDEX idx_loan_id (loan_id),
+  INDEX idx_borrower_id (borrower_id),
+  INDEX idx_status (status),
+  INDEX idx_due_date (due_date),
+  INDEX idx_loan_given_date (loan_given_date),
+  INDEX idx_created_by (created_by),
+  INDEX idx_deleted_at (deleted_at),
+  CONSTRAINT chk_principal_positive CHECK (principal_amount > 0),
+  CONSTRAINT chk_interest_non_negative CHECK (interest_rate >= 0),
+  CONSTRAINT chk_tenure_positive CHECK (tenure > 0),
+  CONSTRAINT fk_loans_borrower FOREIGN KEY (borrower_id) REFERENCES borrowers(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_loans_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
