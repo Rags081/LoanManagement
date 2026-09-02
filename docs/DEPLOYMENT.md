@@ -1,6 +1,6 @@
 # 🚀 Deployment Guide
 
-This guide describes how to deploy the **Loan Management System** frontend and serverless functions to Netlify with CI/CD automation and link to a production MySQL database.
+This guide describes how to deploy the **Loan Management System** frontend and serverless functions to Netlify with CI/CD automation, using either MySQL 8.0+ or MongoDB 6.0+ (MongoDB Atlas).
 
 ---
 
@@ -13,10 +13,35 @@ In your Netlify Dashboard or `netlify.toml`:
 - **Functions Directory**: `netlify/functions`
 
 ### 2. Environment Variables Configuration
-Configure the following environment variables in the Netlify site settings (`Site configuration > Environment variables`):
 
+Set `DB_DRIVER` to choose your database backend:
+
+#### Option A: MongoDB Atlas (Recommended for cloud scalability)
 ```env
-# Database Credentials
+DB_DRIVER=mongodb
+MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
+MONGODB_DATABASE=loan_management
+MONGODB_MAX_POOL_SIZE=10
+MONGODB_MIN_POOL_SIZE=2
+
+# Security & Authentication
+JWT_SECRET=super_secret_production_key_random_64_chars_minimum
+JWT_EXPIRY=24h
+JWT_RESET_EXPIRY=1h
+
+# Rate Limiting
+RATE_LIMIT_WINDOW_MS=900000
+RATE_LIMIT_MAX_REQUESTS=100
+AUTH_RATE_LIMIT_MAX_REQUESTS=5
+
+# Public Frontend Variables
+VITE_API_URL=/api
+VITE_APP_NAME="Loan Management System"
+```
+
+#### Option B: MySQL 8.0+
+```env
+DB_DRIVER=mysql
 DB_HOST=your-production-db-host.com
 DB_PORT=3306
 DB_NAME=loan_management
@@ -38,9 +63,6 @@ AUTH_RATE_LIMIT_MAX_REQUESTS=5
 # Public Frontend Variables
 VITE_API_URL=/api
 VITE_APP_NAME="Loan Management System"
-
-# Monitoring (Optional)
-SENTRY_DSN=
 ```
 
 ---
@@ -57,20 +79,23 @@ The project includes a production CI/CD workflow at `.github/workflows/deploy.ym
 6. Builds optimized production chunks (`npm run build`).
 7. Deploys preview builds on PRs and production releases on `main`.
 
-### Automated Deployment Script
-You can also trigger a manual deployment using `scripts/deploy.sh`:
-```bash
-chmod +x scripts/deploy.sh
-./scripts/deploy.sh
-```
-
 ---
 
-## 🗄️ Database Backup & Retention
+## 📦 Data Migration from MySQL to MongoDB
 
-Run the automated backup script:
-```bash
-chmod +x scripts/backup.sh
-./scripts/backup.sh
-```
-This performs a compressed `mysqldump` and prunes archives older than 30 days.
+When migrating an existing MySQL deployment to MongoDB:
+
+1. **Perform Dry-Run Pre-flight Inspection**:
+   ```bash
+   npx tsx scripts/migrate-mysql-to-mongodb.ts --dry-run
+   ```
+2. **Execute Schema & Data Transfer**:
+   ```bash
+   npx tsx scripts/migrate-mysql-to-mongodb.ts --reset
+   ```
+3. **Run Dual Validation & Financial Reconciliation**:
+   ```bash
+   npx tsx scripts/validate-mysql-mongodb.ts
+   ```
+4. **Switch Driver**:
+   Set `DB_DRIVER=mongodb` in your production environment settings and restart the deployment.

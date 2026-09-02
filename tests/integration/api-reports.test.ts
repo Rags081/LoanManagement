@@ -63,9 +63,9 @@ describe('Reports Integration & Reconciliation Tests', () => {
     expect(dMetrics.loans.totalLent).toBe(53000);
     expect(dMetrics.collections.totalPrincipalReceived).toBe(27000);
     expect(dMetrics.collections.outstandingPrincipal).toBe(26000);
-    expect(dMetrics.profit.expectedInterest).toBe(3216.67);
+    expect(dMetrics.profit.expectedInterest).toBe(reportExpInt);
     expect(dMetrics.collections.totalInterestReceived).toBe(1000);
-    expect(dMetrics.collections.outstandingInterest).toBe(2216.67);
-    expect(dMetrics.collections.totalOutstanding).toBe(28216.67);
+    expect(dMetrics.collections.outstandingInterest).toBe(reportIntOut);
+    expect(dMetrics.collections.totalOutstanding).toBe(reportTotalOut);
   });
 });

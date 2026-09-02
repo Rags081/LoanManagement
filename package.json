@@ -18,7 +18,13 @@
     "functions:dev": "netlify functions:serve",
     "migrate": "node scripts/run-migrations.js",
     "seed": "node scripts/run-seed.js",
-    "db:setup": "npm run migrate && npm run seed"
+    "db:setup": "npm run migrate && npm run seed",
+    "backup:mysql": "npx tsx scripts/backup-mysql.ts",
+    "migrate:mongodb": "npx tsx scripts/migrate-mysql-to-mongodb.ts",
+    "validate:mongodb": "npx tsx scripts/validate-mysql-mongodb.ts",
+    "backup:mongodb": "npx tsx scripts/backup-mongodb.ts",
+    "restore:mongodb": "npx tsx scripts/restore-mongodb.ts",
+    "smoke-test": "npx tsx scripts/smoke-test-production-mongodb.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -33,6 +39,7 @@
     "file-saver": "^2.0.5",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.436.0",
+    "mongodb": "^7.6.0",
     "mysql2": "^3.11.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

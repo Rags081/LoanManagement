@@ -44,12 +44,19 @@ describe('Loans Integration Tests', () => {
     expect(loan?.interestRateType).toBe('monthly');
     expect(loan?.status).toBe('overdue');
 
-    const out = await loanRepository.calculateOutstanding(loan!.id, conn as unknown as PoolConnection);
-    expect(out.principalOutstanding).toBe(10000);
-    expect(out.interestExpected).toBe(1966.67);
-    expect(out.interestOutstanding).toBe(1966.67);
-    expect(out.totalOutstanding).toBe(11966.67);
-    expect(out.isOverdue).toBe(true);
+    const out0902 = await loanRepository.calculateOutstanding(loan!.id, conn as unknown as PoolConnection, new Date('2026-09-02T12:00:00'));
+    expect(out0902.principalOutstanding).toBe(10000);
+    expect(out0902.interestExpected).toBe(1966.67);
+    expect(out0902.interestOutstanding).toBe(1966.67);
+    expect(out0902.totalOutstanding).toBe(11966.67);
+    expect(out0902.isOverdue).toBe(true);
+
+    const out0903 = await loanRepository.calculateOutstanding(loan!.id, conn as unknown as PoolConnection, new Date('2026-09-03T12:00:00'));
+    expect(out0903.principalOutstanding).toBe(10000);
+    expect(out0903.interestExpected).toBe(2000.0);
+    expect(out0903.interestOutstanding).toBe(2000.0);
+    expect(out0903.totalOutstanding).toBe(12000.0);
+    expect(out0903.isOverdue).toBe(true);
   });
 
   it('should verify LN-002 calculation matches expected values', async () => {

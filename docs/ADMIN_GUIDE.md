@@ -1,6 +1,6 @@
 # 🛠️ Administrator Guide - Loan Management System
 
-This guide is intended for system administrators and DevOps engineers responsible for maintaining, monitoring, backing up, and configuring the Loan Management System.
+This guide is intended for system administrators and DevOps engineers responsible for maintaining, monitoring, backing up, migrating, and configuring the Loan Management System.
 
 ---
 
@@ -11,60 +11,72 @@ This guide is intended for system administrators and DevOps engineers responsibl
  │   React 18 + Vite    │ ──────> │   Netlify Functions    │
  │ (Tailwind, Lucide)   │  HTTP   │  (TypeScript, Node 20) │
  └──────────────────────┘         └───────────┬────────────┘
-                                              │ MySQL2 Pool
+                                              │ Dynamic Repositories
                                               ▼
-                                  ┌────────────────────────┐
-                                  │   MySQL 8.0 Database   │
-                                  │   (ACID Transactions)  │
-                                  └────────────────────────┘
+                                 ┌───────────────────────────┐
+                                 │   Database Abstraction    │
+                                 │    (DB_DRIVER Switch)     │
+                                 └─────────────┬─────────────┘
+                                               │
+                        ┌──────────────────────┴──────────────────────┐
+                        ▼                                             ▼
+            ┌────────────────────────┐                   ┌────────────────────────┐
+            │   MySQL 8.0 Database   │                   │  MongoDB 6.0+ / Atlas  │
+            │  (ACID Transactions)   │                   │ (Document Persistence) │
+            └────────────────────────┘                   └────────────────────────┘
 ```
 
 ---
 
-## 2. Database Administration & Connection Pool
+## 2. Database Administration & Driver Selection
 
-### Connection Pool Configuration
-The backend uses `mysql2/promise` connection pooling configured in `netlify/functions/_lib/database.ts`:
+### Driver Selection (`DB_DRIVER`)
+The system supports two enterprise database engines, controlled transparently via environment variables:
+
+| Setting | Description |
+| :--- | :--- |
+| `DB_DRIVER=mysql` | Uses MySQL 8.0+ connection pool via `mysql2/promise` (Default) |
+| `DB_DRIVER=mongodb` | Uses MongoDB 6.0+ / MongoDB Atlas client via official `mongodb` driver |
+
+### MySQL Connection Pool Configuration
+- `DB_HOST`: Database server hostname
+- `DB_PORT`: Database port (Default: 3306)
+- `DB_NAME`: Database name (e.g., `loan_management`)
+- `DB_USER`: Database username
+- `DB_PASSWORD`: Database user password
 - `DB_POOL_MIN`: Minimum idle connections (Default: 2)
 - `DB_POOL_MAX`: Maximum active connections (Default: 10)
-- `connectionLimit`: 10
-- `waitForConnections`: true
-- `queueLimit`: 0
 
-### Running Migrations & Seeds
-```bash
-# Run schema migrations
-npm run migrate
-
-# Run initial seeds
-npm run seed
-
-# Run both in sequence
-npm run db:setup
-```
+### MongoDB Configuration
+- `MONGODB_URI`: MongoDB connection string (`mongodb://localhost:27017` or Atlas `mongodb+srv://...`)
+- `MONGODB_DATABASE`: Target MongoDB database name (Default: `loan_management`)
+- `MONGODB_MAX_POOL_SIZE`: Maximum pool connections (Default: 10)
+- `MONGODB_MIN_POOL_SIZE`: Minimum pool connections (Default: 2)
 
 ---
 
-## 3. Database Backup & Disaster Recovery
+## 3. Database Migration & Reconciliation
 
-### Automated Backup Script
-Run the environment-aware backup script located at `scripts/backup.sh`:
+### Schema & Data Migration (MySQL → MongoDB)
+The application includes a verified, non-destructive migration utility at `scripts/migrate-mysql-to-mongodb.ts`.
+
+#### 1. Pre-flight Dry Run (Inspection only, 0 writes):
 ```bash
-# Execute backup
-chmod +x scripts/backup.sh
-./scripts/backup.sh
+npx tsx scripts/migrate-mysql-to-mongodb.ts --dry-run
 ```
+*Validates source tables, counts, relationships, and foreign key integrity without making any modifications.*
 
-### Backup Mechanism:
-1. Validates `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` from `.env`.
-2. Uses `mysqldump --single-transaction --quick --routines --triggers`.
-3. Compresses the output directly via `gzip` to `./backups/loan_management_backup_YYYYMMDD_HHMMSS.sql.gz`.
-4. Automatically prunes backups older than 30 days.
-
-### Database Restoration:
+#### 2. Execute Full Schema & Data Migration:
 ```bash
-gunzip < backups/loan_management_backup_20260902_120000.sql.gz | mysql -u root -p -h localhost loan_management
+npx tsx scripts/migrate-mysql-to-mongodb.ts --reset
 ```
+*Safely drops target MongoDB collections, migrates all discovered tables (`users`, `borrowers`, `loans`, `payments`, `payment_allocations`, `capital_transactions`, `settings`, `audit_logs`), preserves exact numeric IDs and business codes, and ensures all indexes.*
+
+#### 3. Dual Validation & Financial Reconciliation:
+```bash
+npx tsx scripts/validate-mysql-mongodb.ts
+```
+*Compares record counts, loan-by-loan balances, portfolio totals, and dashboard statistics across both engines to ensure 100% mathematical reconciliation.*
 
 ---
 
@@ -78,13 +90,25 @@ The system exposes a sanitized health-check endpoint at `/api/health`:
 GET /api/health
 ```
 
-**Response (200 OK)**:
+**Response (200 OK - MongoDB)**:
 ```json
 {
   "status": "ok",
+  "driver": "mongodb",
   "database": "connected",
   "uptime": 86400,
-  "timestamp": "2026-09-02T12:00:00.000Z"
+  "timestamp": "2026-09-02T18:00:00.000Z"
+}
+```
+
+**Response (200 OK - MySQL)**:
+```json
+{
+  "status": "ok",
+  "driver": "mysql",
+  "database": "connected",
+  "uptime": 86400,
+  "timestamp": "2026-09-02T18:00:00.000Z"
 }
 ```
 
@@ -99,20 +123,11 @@ GET /api/health
 2. **HTTP Security Headers**:
    - `X-Frame-Options: DENY`
    - `X-Content-Type-Options: nosniff`
-   - `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`
    - `Referrer-Policy: strict-origin-when-cross-origin`
+   - `Permissions-Policy: camera=(), microphone=(), geolocation=()`
 3. **Password Security**:
-   - Hashed using bcrypt with 10-12 salt rounds.
-4. **Token Security**:
-   - JWT tokens signed with minimum 32-character random secret key and 24h expiration.
-
----
-
-## 6. Troubleshooting & Diagnostics
-
-| Issue | Potential Cause | Solution |
-| :--- | :--- | :--- |
-| `ER_ACCESS_DENIED_ERROR` | Incorrect DB credentials in `.env` | Verify `DB_USER` and `DB_PASSWORD` in `.env`. |
-| `ECONNREFUSED` on port 3306 | MySQL server not running | Start MySQL service via `systemctl start mysql` or service manager. |
-| `TokenExpiredError` | User session expired | Re-authenticate via `/login`. |
-| Netlify Function Timeout | Slow database query | Check connection pool limits and index usage in MySQL slow query log. |
+   - Bcrypt hashing with 10–12 salt rounds.
+4. **JWT Expiration**:
+   - Access tokens expire in 24 hours (`JWT_EXPIRY=24h`).
+5. **Rate Limiting**:
+   - In-memory sliding window rate limiter protects endpoints against brute-force attacks (5 failed auth attempts / 15 mins).
