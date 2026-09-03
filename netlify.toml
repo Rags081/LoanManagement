@@ -5,6 +5,13 @@
 
 [build.environment]
   SECRETS_SCAN_OMIT_PATHS = ".env.example,docs/**,backups/**,scripts/**,tests/**,.github/**"
+  # These env vars hold non-sensitive config (dev port, db driver name, default
+  # localhost URLs, public app display name) rather than credentials. Their
+  # values legitimately recur throughout the codebase (dev server fallbacks,
+  # branding text, the "mongodb" driver name in dependency/script names, and
+  # the VITE_-prefixed vars that are intentionally embedded in the client
+  # bundle), so they are exempted from literal-value secrets scanning.
+  SECRETS_SCAN_OMIT_KEYS = "DB_DRIVER,DB_HOST,NETLIFY_FUNCTIONS_PORT,VITE_API_URL,VITE_APP_NAME"
 
 [[redirects]]
   from = "/api/*"
