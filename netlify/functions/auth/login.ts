@@ -1,10 +1,10 @@
 import { Handler, HandlerEvent } from '@netlify/functions';
 import { z } from 'zod';
-import { userRepository } from '../_lib/repositories/user.repository';
+import { userRepository } from '../_lib/repositories';
 import { verifyPassword, generateToken } from '../_lib/auth-utils';
 import { checkRateLimit, getClientIp, rateLimitExceededResponse } from '../_lib/rate-limit';
 import { corsHeaders } from '../_lib/auth-middleware';
-import { execute } from '../_lib/database';
+import { logAudit } from '../_lib/audit';
 
 const loginSchema = z.object({
   email: z.string().trim().email('Invalid email address'),
@@ -96,11 +96,14 @@ export const handler: Handler = async (event: HandlerEvent) => {
     });
 
     // 7. Audit log
-    await execute(
-      `INSERT INTO audit_logs (user_id, action, entity, entity_id, ip_address, user_agent)
-       VALUES (?, 'LOGIN', 'user', ?, ?, ?)`,
-      [user.id, String(user.id), ip, event.headers['user-agent'] || null]
-    ).catch(() => {});
+    await logAudit({
+      userId: user.id,
+      action: 'LOGIN',
+      entity: 'user',
+      entityId: String(user.id),
+      ipAddress: ip,
+      userAgent: event.headers['user-agent'] || null,
+    });
 
     return {
       statusCode: 200,

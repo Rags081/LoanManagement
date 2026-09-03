@@ -64,12 +64,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setUser(receivedUser);
       toast.success(`Welcome back, ${receivedUser.fullName}!`);
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { status?: number; data?: { message?: string } }; message?: string };
+      const axiosErr = err as {
+        response?: {
+          status?: number;
+          data?: { message?: string; error?: string } | string;
+          headers?: Record<string, string>;
+        };
+        message?: string;
+      };
       const status = axiosErr.response?.status;
-      let msg = axiosErr.response?.data?.message;
+      const rawData = axiosErr.response?.data;
+
+      let msg = typeof rawData === 'object' && rawData !== null ? rawData.message || rawData.error : undefined;
 
       if (!msg) {
-        if (status === 401) {
+        if (typeof rawData === 'string' && (rawData.includes('<!DOCTYPE') || rawData.includes('<html'))) {
+          msg = 'Authentication API routing failed. The server returned HTML instead of a JSON API response.';
+        } else if (status === 401) {
           msg = 'Invalid credentials. Please verify your email and password.';
         } else if (status === 403) {
           msg = 'Account is deactivated. Please contact an administrator.';
@@ -78,7 +89,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         } else if (!axiosErr.response) {
           msg = 'Cannot connect to backend server. Is the API server running?';
         } else {
-          msg = 'Login failed due to a server error. Check database connection.';
+          msg = 'Login failed due to a server error. Please check backend logs.';
         }
       }
       toast.error(msg);

@@ -1,5 +1,5 @@
 import { requireAuth, AuthenticatedEvent, corsHeaders } from '../_lib/auth-middleware';
-import { execute } from '../_lib/database';
+import { logAudit } from '../_lib/audit';
 import { getClientIp } from '../_lib/rate-limit';
 
 export const handler = requireAuth(async (event: AuthenticatedEvent) => {
@@ -15,11 +15,14 @@ export const handler = requireAuth(async (event: AuthenticatedEvent) => {
   const ip = getClientIp(event);
 
   // Log logout in audit logs
-  await execute(
-    `INSERT INTO audit_logs (user_id, action, entity, entity_id, ip_address, user_agent)
-     VALUES (?, 'LOGOUT', 'user', ?, ?, ?)`,
-    [userId, String(userId), ip, event.headers['user-agent'] || null]
-  ).catch(() => {});
+  await logAudit({
+    userId,
+    action: 'LOGOUT',
+    entity: 'user',
+    entityId: String(userId),
+    ipAddress: ip,
+    userAgent: event.headers['user-agent'] || null,
+  });
 
   return {
     statusCode: 200,

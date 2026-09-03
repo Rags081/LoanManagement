@@ -7,6 +7,14 @@
   SECRETS_SCAN_OMIT_PATHS = ".env.example,docs/**,backups/**,scripts/**,tests/**,.github/**,README.md,error.md"
   SECRETS_SCAN_OMIT_KEYS = "DB_DRIVER,DB_HOST,DB_USER,DB_NAME,DB_PORT,NETLIFY_FUNCTIONS_PORT,RATE_LIMIT_WINDOW_MS,VITE_API_URL,VITE_APP_NAME"
 
+[functions]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/api/auth/*"
+  to = "/.netlify/functions/auth"
+  status = 200
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"

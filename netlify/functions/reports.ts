@@ -1,6 +1,6 @@
 import { HandlerResponse } from '@netlify/functions';
 import { requireAuth, AuthenticatedEvent, corsHeaders } from './_lib/auth-middleware';
-import { reportRepository } from './_lib/repositories/report.repository';
+import { reportRepository } from './_lib/repositories';
 import { ReportType, ReportFilterParams } from '../../../src/types/report';
 
 export const handler = requireAuth(async (event: AuthenticatedEvent): Promise<HandlerResponse> => {

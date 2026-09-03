@@ -1,10 +1,7 @@
 import ExcelJS from 'exceljs';
 import { RowDataPacket } from 'mysql2/promise';
 import { getPool } from '../database';
-import { borrowerRepository } from '../repositories/borrower.repository';
-import { loanRepository } from '../repositories/loan.repository';
-import { paymentRepository } from '../repositories/payment.repository';
-import { capitalRepository } from '../repositories/capital.repository';
+import { borrowerRepository, loanRepository, paymentRepository, capitalRepository } from '../repositories';
 import { ImportType, ImportResult, ImportRowError } from '../../../../src/types/report';
 
 export class ExcelImportService {

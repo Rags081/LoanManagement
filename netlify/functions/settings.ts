@@ -1,9 +1,8 @@
 import { HandlerResponse } from '@netlify/functions';
 import bcrypt from 'bcryptjs';
 import { requireAuth, AuthenticatedEvent, corsHeaders } from './_lib/auth-middleware';
-import { settingsRepository } from './_lib/repositories/settings.repository';
-import { userRepository } from './_lib/repositories/user.repository';
-import { getPool } from './_lib/database';
+import { settingsRepository, userRepository } from './_lib/repositories';
+import { logAudit } from './_lib/audit';
 
 export const handler = requireAuth(async (event: AuthenticatedEvent): Promise<HandlerResponse> => {
   const method = event.httpMethod;
@@ -171,12 +170,13 @@ export const handler = requireAuth(async (event: AuthenticatedEvent): Promise<Ha
 
       await settingsRepository.setMany(payload, userId || undefined);
 
-      const conn = getPool();
-      await conn.execute(
-        `INSERT INTO audit_logs (user_id, action, entity, entity_id, new_data)
-         VALUES (?, 'UPDATE', 'settings', 'config', ?)`,
-        [userId, JSON.stringify(payload)]
-      );
+      await logAudit({
+        userId,
+        action: 'UPDATE',
+        entity: 'settings',
+        entityId: 'config',
+        newData: payload,
+      });
 
       const updated = await settingsRepository.getAll();
       return {

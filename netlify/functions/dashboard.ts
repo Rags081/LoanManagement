@@ -1,6 +1,6 @@
 import { HandlerResponse } from '@netlify/functions';
 import { requireAuth, AuthenticatedEvent, corsHeaders } from './_lib/auth-middleware';
-import { dashboardRepository } from './_lib/repositories/dashboard.repository';
+import { dashboardRepository } from './_lib/repositories';
 
 export const handler = requireAuth(async (event: AuthenticatedEvent): Promise<HandlerResponse> => {
   const method = event.httpMethod;

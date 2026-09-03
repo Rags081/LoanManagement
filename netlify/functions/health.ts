@@ -18,6 +18,7 @@ export const handler: Handler = async () => {
       database: health.database,
       uptime: health.uptime,
       timestamp: health.timestamp,
+      ...(health.errorType ? { errorType: health.errorType } : {}),
       ...(health.error ? { error: health.error } : {}),
     }),
   };

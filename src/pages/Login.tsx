@@ -44,21 +44,32 @@ export const Login: React.FC = () => {
       await login(data.email, data.password);
       navigate(redirectPath, { replace: true });
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { status?: number; data?: { message?: string } }; message?: string };
+      const axiosErr = err as {
+        response?: {
+          status?: number;
+          data?: { message?: string; error?: string } | string;
+          headers?: Record<string, string>;
+        };
+        message?: string;
+      };
       const status = axiosErr.response?.status;
-      let msg = axiosErr.response?.data?.message;
+      const rawData = axiosErr.response?.data;
+
+      let msg = typeof rawData === 'object' && rawData !== null ? rawData.message || rawData.error : undefined;
 
       if (!msg) {
-        if (status === 401) {
+        if (typeof rawData === 'string' && (rawData.includes('<!DOCTYPE') || rawData.includes('<html'))) {
+          msg = 'Authentication API routing failed. The server returned HTML instead of a JSON API response.';
+        } else if (status === 401) {
           msg = 'Invalid credentials. Please verify your email and password.';
         } else if (status === 403) {
           msg = 'Account is deactivated. Please contact an administrator.';
         } else if (status === 429) {
           msg = 'Too many login attempts. Please wait 15 minutes and try again.';
         } else if (!axiosErr.response) {
-          msg = 'Unable to reach backend API server. Please ensure the backend is running and database is connected.';
+          msg = 'Unable to reach backend API server. Please ensure the backend is running.';
         } else {
-          msg = 'An unexpected server error occurred. Please check database connectivity.';
+          msg = 'An unexpected server error occurred. Please verify database and backend status.';
         }
       }
       setAuthError(msg);

@@ -1,6 +1,6 @@
 import { HandlerResponse } from '@netlify/functions';
 import { requireAuth, AuthenticatedEvent, corsHeaders } from './_lib/auth-middleware';
-import { borrowerRepository } from './_lib/repositories/borrower.repository';
+import { borrowerRepository } from './_lib/repositories';
 import { borrowerSchema, borrowerUpdateSchema } from '../../src/utils/validation';
 
 export const handler = requireAuth(async (event: AuthenticatedEvent): Promise<HandlerResponse> => {

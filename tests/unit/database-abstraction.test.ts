@@ -14,12 +14,20 @@ describe('Database Abstraction Layer Unit Tests', () => {
     vi.restoreAllMocks();
   });
 
-  it('should default to mysql driver when DB_DRIVER is unset or empty', () => {
+  it('should default to mysql driver when DB_DRIVER and MONGODB_URI are unset or empty', () => {
     delete process.env.DB_DRIVER;
+    delete process.env.MONGODB_URI;
+    delete process.env.MONGO_URI;
     expect(getDbDriver()).toBe('mysql');
 
     process.env.DB_DRIVER = '';
     expect(getDbDriver()).toBe('mysql');
+  });
+
+  it('should auto-detect mongodb when MONGODB_URI is provided without explicit DB_DRIVER', () => {
+    delete process.env.DB_DRIVER;
+    process.env.MONGODB_URI = 'mongodb+srv://user:pass@cluster.mongodb.net';
+    expect(getDbDriver()).toBe('mongodb');
   });
 
   it('should resolve mongodb when DB_DRIVER=mongodb or mongo', () => {

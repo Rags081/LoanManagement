@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { requireAuth, AuthenticatedEvent, corsHeaders } from '../_lib/auth-middleware';
-import { userRepository } from '../_lib/repositories/user.repository';
+import { userRepository } from '../_lib/repositories';
 import { verifyPassword, hashPassword } from '../_lib/auth-utils';
-import { withTransaction, execute } from '../_lib/database';
+import { logAudit } from '../_lib/audit';
 import { getClientIp } from '../_lib/rate-limit';
 
 const changePasswordSchema = z.object({
@@ -58,18 +58,19 @@ export const handler = requireAuth(async (event: AuthenticatedEvent) => {
       };
     }
 
-    // Hash new password and update inside transaction
+    // Hash new password and update
     const newHash = await hashPassword(newPassword);
-    await withTransaction(async (conn) => {
-      await userRepository.update(userId, { password_hash: newHash }, conn);
-    });
+    await userRepository.update(userId, { password_hash: newHash }, userId);
 
     const ip = getClientIp(event);
-    await execute(
-      `INSERT INTO audit_logs (user_id, action, entity, entity_id, ip_address, user_agent)
-       VALUES (?, 'CHANGE_PASSWORD', 'user', ?, ?, ?)`,
-      [userId, String(userId), ip, event.headers['user-agent'] || null]
-    ).catch(() => {});
+    await logAudit({
+      userId,
+      action: 'CHANGE_PASSWORD',
+      entity: 'user',
+      entityId: String(userId),
+      ipAddress: ip,
+      userAgent: event.headers['user-agent'] || null,
+    });
 
     return {
       statusCode: 200,

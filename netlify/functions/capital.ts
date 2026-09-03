@@ -1,7 +1,7 @@
 import { HandlerResponse } from '@netlify/functions';
 import { requireAuth, AuthenticatedEvent, corsHeaders } from './_lib/auth-middleware';
-import { capitalRepository } from './_lib/repositories/capital.repository';
-import { capitalSchema, capitalUpdateSchema } from '../../src/utils/validation';
+import { capitalRepository } from './_lib/repositories';
+import { capitalTransactionSchema, capitalUpdateSchema } from '../../src/utils/validation';
 
 export const handler = requireAuth(async (event: AuthenticatedEvent): Promise<HandlerResponse> => {
   const method = event.httpMethod;

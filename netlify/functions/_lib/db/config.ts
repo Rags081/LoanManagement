@@ -4,10 +4,22 @@ import { DatabaseConfig, DbDriver } from './types';
 dotenv.config();
 
 export function getDbDriver(): DbDriver {
-  const driver = (process.env.DB_DRIVER || 'mysql').toLowerCase().trim();
-  if (driver === 'mongodb' || driver === 'mongo') {
+  const explicitDriver = process.env.DB_DRIVER ? process.env.DB_DRIVER.toLowerCase().trim() : '';
+
+  if (explicitDriver === 'mongodb' || explicitDriver === 'mongo') {
     return 'mongodb';
   }
+
+  if (explicitDriver === 'mysql') {
+    return 'mysql';
+  }
+
+  // Auto-detect MongoDB if MONGODB_URI is provided and no explicit driver specified
+  const mongoUri = (process.env.MONGODB_URI || process.env.MONGO_URI || '').trim();
+  if (mongoUri && (mongoUri.startsWith('mongodb://') || mongoUri.startsWith('mongodb+srv://'))) {
+    return 'mongodb';
+  }
+
   return 'mysql';
 }
 
@@ -26,10 +38,10 @@ export function getDatabaseConfig(): DatabaseConfig {
       maxPool: parseInt(process.env.DB_POOL_MAX || '10', 10),
     },
     mongodb: {
-      uri: process.env.MONGODB_URI || 'mongodb://localhost:27017',
+      uri: process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017',
       database: process.env.MONGODB_DATABASE || process.env.DB_NAME || 'loan_management',
       maxPoolSize: parseInt(process.env.MONGODB_MAX_POOL_SIZE || '10', 10),
-      minPoolSize: parseInt(process.env.MONGODB_MIN_POOL_SIZE || '2', 10),
+      minPoolSize: parseInt(process.env.MONGODB_MIN_POOL_SIZE || '0', 10),
     },
   };
 }

@@ -1,9 +1,9 @@
 import { Handler, HandlerEvent } from '@netlify/functions';
 import { z } from 'zod';
-import { userRepository } from '../_lib/repositories/user.repository';
+import { userRepository } from '../_lib/repositories';
 import { verifyToken, hashPassword } from '../_lib/auth-utils';
 import { corsHeaders } from '../_lib/auth-middleware';
-import { withTransaction, execute } from '../_lib/database';
+import { logAudit } from '../_lib/audit';
 import { getClientIp } from '../_lib/rate-limit';
 
 const resetPasswordSchema = z.object({
@@ -78,16 +78,17 @@ export const handler: Handler = async (event: HandlerEvent) => {
     }
 
     const newHash = await hashPassword(newPassword);
-    await withTransaction(async (conn) => {
-      await userRepository.update(user.id, { password_hash: newHash }, conn);
-    });
+    await userRepository.update(user.id, { password_hash: newHash }, user.id);
 
     const ip = getClientIp(event);
-    await execute(
-      `INSERT INTO audit_logs (user_id, action, entity, entity_id, ip_address, user_agent)
-       VALUES (?, 'RESET_PASSWORD', 'user', ?, ?, ?)`,
-      [user.id, String(user.id), ip, event.headers['user-agent'] || null]
-    ).catch(() => {});
+    await logAudit({
+      userId: user.id,
+      action: 'RESET_PASSWORD',
+      entity: 'user',
+      entityId: String(user.id),
+      ipAddress: ip,
+      userAgent: event.headers['user-agent'] || null,
+    });
 
     return {
       statusCode: 200,

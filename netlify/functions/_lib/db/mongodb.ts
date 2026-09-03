@@ -2,10 +2,14 @@ import { MongoClient, Db, ClientSession } from 'mongodb';
 import { getDatabaseConfig } from './config';
 import dns from 'dns';
 
+// Safe DNS fallback for environments with local resolver limitations
 try {
-  dns.setServers(['8.8.8.8', '1.1.1.1']);
+  const currentServers = dns.getServers();
+  if (!currentServers || currentServers.length === 0 || currentServers[0] === '0.0.0.0') {
+    dns.setServers(['8.8.8.8', '1.1.1.1']);
+  }
 } catch {
-  // Ignore if custom DNS cannot be set
+  // Ignore if custom DNS cannot be configured
 }
 
 let client: MongoClient | null = null;
@@ -24,38 +28,68 @@ export const MONGO_COLLECTIONS = {
 } as const;
 
 export const getMongoClient = async (): Promise<MongoClient> => {
-  if (!client) {
-    const config = getDatabaseConfig().mongodb;
-    client = new MongoClient(config.uri, {
-      maxPoolSize: config.maxPoolSize,
-      minPoolSize: config.minPoolSize,
-      serverSelectionTimeoutMS: 5000,
-    });
-    await client.connect();
+  if (client) {
+    return client;
   }
-  return client;
+
+  const config = getDatabaseConfig().mongodb;
+  const newClient = new MongoClient(config.uri, {
+    maxPoolSize: config.maxPoolSize,
+    minPoolSize: config.minPoolSize,
+    serverSelectionTimeoutMS: 10000,
+    connectTimeoutMS: 15000,
+  });
+
+  try {
+    await newClient.connect();
+    client = newClient;
+
+    client.on('close', () => {
+      client = null;
+      db = null;
+      indexesEnsured = false;
+    });
+
+    return client;
+  } catch (err) {
+    try {
+      await newClient.close();
+    } catch {
+      // Ignore cleanup error
+    }
+    client = null;
+    db = null;
+    indexesEnsured = false;
+    throw err;
+  }
 };
 
 export const getMongoDb = async (): Promise<Db> => {
-  if (!db) {
-    const activeClient = await getMongoClient();
-    const config = getDatabaseConfig().mongodb;
-    db = activeClient.db(config.database);
+  const activeClient = await getMongoClient();
+  const config = getDatabaseConfig().mongodb;
 
-    if (!indexesEnsured) {
-      await ensureMongoIndexes(db).catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn('Warning: Could not auto-ensure MongoDB indexes:', msg);
-      });
-      indexesEnsured = true;
-    }
+  if (!db || db.databaseName !== config.database) {
+    db = activeClient.db(config.database);
   }
+
+  if (!indexesEnsured) {
+    await ensureMongoIndexes(db).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn('Warning: Could not auto-ensure MongoDB indexes:', msg);
+    });
+    indexesEnsured = true;
+  }
+
   return db;
 };
 
 export const closeMongoDb = async (): Promise<void> => {
   if (client) {
-    await client.close();
+    try {
+      await client.close();
+    } catch {
+      // Ignore close error
+    }
     client = null;
     db = null;
     indexesEnsured = false;

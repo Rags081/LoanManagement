@@ -1,6 +1,6 @@
 import { Handler, HandlerEvent } from '@netlify/functions';
 import { z } from 'zod';
-import { userRepository } from '../_lib/repositories/user.repository';
+import { userRepository } from '../_lib/repositories';
 import { generateResetToken } from '../_lib/auth-utils';
 import { corsHeaders } from '../_lib/auth-middleware';
 import { checkRateLimit, getClientIp, rateLimitExceededResponse } from '../_lib/rate-limit';

@@ -1,5 +1,5 @@
 import { requireAuth, AuthenticatedEvent, corsHeaders } from '../_lib/auth-middleware';
-import { userRepository } from '../_lib/repositories/user.repository';
+import { userRepository } from '../_lib/repositories';
 
 export const handler = requireAuth(async (event: AuthenticatedEvent) => {
   if (event.httpMethod !== 'GET') {

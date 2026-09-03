@@ -1,6 +1,6 @@
 import { HandlerEvent, HandlerContext, HandlerResponse } from '@netlify/functions';
 import { extractToken, verifyToken, JwtUserPayload } from './auth-utils';
-import { userRepository } from './repositories/user.repository';
+import { userRepository } from './repositories';
 
 export interface AuthenticatedEvent extends HandlerEvent {
   user: JwtUserPayload;

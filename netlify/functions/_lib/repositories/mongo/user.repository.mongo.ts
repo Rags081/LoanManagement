@@ -183,6 +183,13 @@ export class MongoUserRepository {
       created_at: now,
     });
   }
+
+  async updateLastLogin(id: number): Promise<void> {
+    const db = await getMongoDb();
+    await db
+      .collection(MONGO_COLLECTIONS.USERS)
+      .updateOne({ id: Number(id), deleted_at: null }, { $set: { last_login_at: new Date() } });
+  }
 }
 
 export const mongoUserRepository = new MongoUserRepository();

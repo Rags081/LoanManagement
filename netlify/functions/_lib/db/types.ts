@@ -40,7 +40,8 @@ export interface PaginatedResult<T> {
 export interface HealthStatus {
   status: 'ok' | 'error';
   driver: DbDriver;
-  database: 'connected' | 'disconnected' | 'error';
+  database: 'connected' | 'disconnected' | 'error' | 'unreachable';
+  errorType?: string;
   error?: string;
   uptime: number;
   timestamp: string;

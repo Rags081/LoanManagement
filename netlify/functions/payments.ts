@@ -1,7 +1,6 @@
 import { HandlerResponse } from '@netlify/functions';
 import { requireAuth, AuthenticatedEvent, corsHeaders } from './_lib/auth-middleware';
-import { paymentRepository } from './_lib/repositories/payment.repository';
-import { loanRepository } from './_lib/repositories/loan.repository';
+import { paymentRepository, loanRepository } from './_lib/repositories';
 import { paymentSchema, paymentFilterSchema, paymentVoidSchema } from '../../src/utils/validation';
 
 export const handler = requireAuth(async (event: AuthenticatedEvent): Promise<HandlerResponse> => {

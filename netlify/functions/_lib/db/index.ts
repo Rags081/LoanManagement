@@ -8,6 +8,32 @@ export * from './config';
 export * from './mysql';
 export * from './mongodb';
 
+function classifyDbError(rawMsg: string): string {
+  const lower = rawMsg.toLowerCase();
+  if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('serverselectionerror')) {
+    return 'connection_timeout';
+  }
+  if (lower.includes('auth') || lower.includes('access denied') || lower.includes('authentication failed')) {
+    return 'authentication_failed';
+  }
+  if (lower.includes('econnrefused') || lower.includes('unreachable') || lower.includes('enotfound')) {
+    return 'connection_refused';
+  }
+  if (lower.includes('querysrv')) {
+    return 'dns_resolution_failed';
+  }
+  return 'database_unreachable';
+}
+
+function sanitizeDbError(err: unknown): string {
+  if (!err) return 'Unknown database error';
+  const rawMsg = err instanceof Error ? err.message : String(err);
+  return rawMsg
+    .replace(/\/\/[^:]+:[^@]+@/g, '//[masked-credentials]@')
+    .replace(/password=[^;&\s]+/gi, 'password=***')
+    .replace(/mongodb(\+srv)?:\/\/[^\s]+/gi, 'mongodb://[masked]');
+}
+
 export async function checkDatabaseHealth(): Promise<HealthStatus> {
   const driver = getDbDriver();
   const uptime = Math.floor(process.uptime());
@@ -36,11 +62,15 @@ export async function checkDatabaseHealth(): Promise<HealthStatus> {
       };
     }
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Database connection error';
+    const rawMsg = err instanceof Error ? err.message : String(err);
+    const message = sanitizeDbError(err);
+    const errorType = classifyDbError(rawMsg);
+
     return {
       status: 'error',
       driver,
-      database: 'error',
+      database: 'unreachable',
+      errorType,
       error: message,
       uptime,
       timestamp,
