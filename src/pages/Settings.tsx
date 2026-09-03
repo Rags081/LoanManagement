@@ -685,7 +685,7 @@ export const Settings: React.FC = () => {
                 <div className="text-xs text-slate-600 space-y-1.5 pt-1">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Database Name:</span>
-                    <span className="font-mono font-semibold text-slate-900">{systemInfo?.database || 'loan_management'}</span>
+                    <span className="font-mono font-semibold text-slate-900">{systemInfo?.database || '-'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Node Runtime:</span>

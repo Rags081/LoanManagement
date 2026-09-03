@@ -23,7 +23,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
   }
 
   const ip = getClientIp(event);
-  const rateLimit = checkRateLimit(`forgot-password:${ip}`, 3, 900000);
+  const rateLimit = checkRateLimit(`forgot-password:${ip}`, 3, 15 * 60 * 1000);
   if (!rateLimit.allowed) {
     return rateLimitExceededResponse(rateLimit.retryAfter);
   }

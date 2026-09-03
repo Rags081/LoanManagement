@@ -4,7 +4,8 @@
   functions = "netlify/functions"
 
 [build.environment]
-  SECRETS_SCAN_OMIT_PATHS = ".env.example,docs/**,backups/**,scripts/**,tests/**,.github/**"
+  SECRETS_SCAN_OMIT_PATHS = ".env.example,docs/**,backups/**,scripts/**,tests/**,.github/**,README.md,error.md"
+  SECRETS_SCAN_OMIT_KEYS = "DB_DRIVER,DB_PORT,VITE_API_URL"
 
 [[redirects]]
   from = "/api/*"

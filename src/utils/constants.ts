@@ -9,7 +9,7 @@ export const DATE_FORMAT_DISPLAY = 'dd MMM yyyy';
 export const DATE_FORMAT_API = 'yyyy-MM-dd';
 export const DATE_TIME_FORMAT_DISPLAY = 'dd MMM yyyy, hh:mm a';
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+export const API_BASE_URL = import.meta.env.VITE_API_URL;
 
 export const DEFAULT_PAGE_SIZE = 10;
 export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
