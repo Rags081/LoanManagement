@@ -191,7 +191,7 @@ export class SettingsRepository {
     return {
       status: 'healthy',
       pingMs,
-      database: process.env.DB_NAME || 'loan_management',
+      database: process.env.DB_NAME || 'app_db',
       serverTime: new Date().toISOString(),
       uptimeSeconds: Math.floor(process.uptime()),
       nodeVersion: process.version,

@@ -38,7 +38,7 @@ export const handler = requireAuth(async (event: AuthenticatedEvent): Promise<Ha
     // ----------------------------------------------------
     if (method === 'GET' && isBackup) {
       const backupData = await settingsRepository.getFullDatabaseBackup();
-      const filename = `loan_management_backup_${new Date().toISOString().split('T')[0]}.json`;
+      const filename = `database_backup_${new Date().toISOString().split('T')[0]}.json`;
       return {
         statusCode: 200,
         headers: {

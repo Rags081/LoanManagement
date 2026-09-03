@@ -82,7 +82,7 @@ function netlifyFunctionsDevPlugin(): Plugin {
           const queryParams = Object.fromEntries(new URLSearchParams(rawUrl.split('?')[1] || ''));
 
           const event = {
-            rawUrl: `http://${req.headers.host || 'localhost:5173'}${req.url}`,
+            rawUrl: `http://${req.headers.host || '127.0.0.1:5173'}${req.url}`,
             rawQuery: rawUrl.includes('?') ? rawUrl.split('?')[1] : '',
             path: urlPath,
             httpMethod: req.method || 'GET',
