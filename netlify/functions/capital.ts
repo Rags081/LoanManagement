@@ -100,7 +100,8 @@ export const handler = requireAuth(async (event: AuthenticatedEvent): Promise<Ha
       }
 
       const body = JSON.parse(event.body || '{}');
-      const parseResult = capitalSchema.safeParse(body);
+      const schema = capitalSchema || capitalTransactionSchema;
+      const parseResult = schema.safeParse(body);
       if (!parseResult.success) {
         return {
           statusCode: 400,
@@ -141,7 +142,8 @@ export const handler = requireAuth(async (event: AuthenticatedEvent): Promise<Ha
       }
 
       const body = JSON.parse(event.body || '{}');
-      const parseResult = capitalUpdateSchema.safeParse(body);
+      const schema = capitalUpdateSchema || (capitalSchema || capitalTransactionSchema).partial();
+      const parseResult = schema.safeParse(body);
       if (!parseResult.success) {
         return {
           statusCode: 400,
