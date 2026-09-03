@@ -169,6 +169,8 @@ export const capitalSchema = z.object({
 });
 
 export type CapitalSchemaType = z.infer<typeof capitalSchema>;
+export const capitalTransactionSchema = capitalSchema;
+export type CapitalTransactionSchemaType = CapitalSchemaType;
 
 export const capitalUpdateSchema = capitalSchema.partial();
 export type CapitalUpdateSchemaType = z.infer<typeof capitalUpdateSchema>;

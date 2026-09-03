@@ -13,6 +13,7 @@ try {
 }
 
 let client: MongoClient | null = null;
+let clientPromise: Promise<MongoClient> | null = null;
 let db: Db | null = null;
 let indexesEnsured = false;
 
@@ -32,36 +33,47 @@ export const getMongoClient = async (): Promise<MongoClient> => {
     return client;
   }
 
+  if (clientPromise) {
+    return clientPromise;
+  }
+
   const config = getDatabaseConfig().mongodb;
   const newClient = new MongoClient(config.uri, {
-    maxPoolSize: config.maxPoolSize,
-    minPoolSize: config.minPoolSize,
-    serverSelectionTimeoutMS: 10000,
-    connectTimeoutMS: 15000,
+    maxPoolSize: Math.max(10, config.maxPoolSize || 10),
+    minPoolSize: 0,
+    serverSelectionTimeoutMS: 5000,
+    connectTimeoutMS: 10000,
   });
 
-  try {
-    await newClient.connect();
-    client = newClient;
+  clientPromise = newClient
+    .connect()
+    .then((connectedClient) => {
+      client = connectedClient;
+      clientPromise = null;
 
-    client.on('close', () => {
+      client.on('close', () => {
+        client = null;
+        clientPromise = null;
+        db = null;
+        indexesEnsured = false;
+      });
+
+      return client;
+    })
+    .catch(async (err) => {
       client = null;
+      clientPromise = null;
       db = null;
       indexesEnsured = false;
+      try {
+        await newClient.close();
+      } catch {
+        // Ignore cleanup error
+      }
+      throw err;
     });
 
-    return client;
-  } catch (err) {
-    try {
-      await newClient.close();
-    } catch {
-      // Ignore cleanup error
-    }
-    client = null;
-    db = null;
-    indexesEnsured = false;
-    throw err;
-  }
+  return clientPromise;
 };
 
 export const getMongoDb = async (): Promise<Db> => {
@@ -73,11 +85,12 @@ export const getMongoDb = async (): Promise<Db> => {
   }
 
   if (!indexesEnsured) {
-    await ensureMongoIndexes(db).catch((err: unknown) => {
+    indexesEnsured = true;
+    // Ensure indexes asynchronously in background without blocking the request path
+    ensureMongoIndexes(db).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn('Warning: Could not auto-ensure MongoDB indexes:', msg);
     });
-    indexesEnsured = true;
   }
 
   return db;
@@ -91,6 +104,7 @@ export const closeMongoDb = async (): Promise<void> => {
       // Ignore close error
     }
     client = null;
+    clientPromise = null;
     db = null;
     indexesEnsured = false;
   }

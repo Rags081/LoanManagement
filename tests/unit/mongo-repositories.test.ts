@@ -6,6 +6,7 @@ import { mongoLoanRepository } from '../../netlify/functions/_lib/repositories/m
 import { mongoPaymentRepository } from '../../netlify/functions/_lib/repositories/mongo/payment.repository.mongo';
 import { mongoCapitalRepository } from '../../netlify/functions/_lib/repositories/mongo/capital.repository.mongo';
 import { mongoSettingsRepository } from '../../netlify/functions/_lib/repositories/mongo/settings.repository.mongo';
+import { mongoDashboardRepository } from '../../netlify/functions/_lib/repositories/mongo/dashboard.repository.mongo';
 
 interface MockDoc {
   id?: number;
@@ -291,5 +292,23 @@ describe('MongoDB Repositories Unit Tests', () => {
     await mongoSettingsRepository.set('app_name', 'Test App');
     const val = await mongoSettingsRepository.get('app_name');
     expect(val).toBe('Test App');
+  });
+
+  it('MongoLoanRepository: findAll returns batch-enriched loans', async () => {
+    const res = await mongoLoanRepository.findAll({}, { page: 1, limit: 10 });
+    expect(res.total).toBe(1);
+    expect(res.data.length).toBe(1);
+    expect(res.data[0].borrowerName).toBe('John Doe');
+    expect(res.data[0].principalAmount).toBe(10000);
+    expect(res.data[0].interestReceived).toBe(300);
+  });
+
+  it('MongoDashboardRepository: getAllMetrics computes metrics in single pass', async () => {
+    const metrics = await mongoDashboardRepository.getAllMetrics();
+    expect(metrics.capital.totalGiven).toBe(50000);
+    expect(metrics.loans.totalLoans).toBe(1);
+    expect(metrics.loans.activeLoans).toBe(1);
+    expect(metrics.collections.totalInterestReceived).toBe(300);
+    expect(metrics.registeredBorrowersCount).toBe(1);
   });
 });

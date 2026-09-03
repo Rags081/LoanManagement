@@ -4,6 +4,8 @@ import {
   loanSchema,
   paymentSchema,
   capitalSchema,
+  capitalTransactionSchema,
+  capitalUpdateSchema,
   loginSchema,
   phoneSchema,
   rateSchema,
@@ -104,13 +106,33 @@ describe('Validation Schemas Unit Tests', () => {
   });
 
   describe('Capital & Login Schemas', () => {
-    it('should validate capital transaction', () => {
+    it('should validate capital transaction with all fields', () => {
       const data = {
         transactionDate: '2026-09-02',
         transactionType: 'capital_given',
         amount: 25000,
+        source: 'Bank Account 1',
+        destination: 'Cash Register',
+        description: 'Initial capital injection',
+        referenceNumber: 'REF-12345',
+        notes: 'Verified by director',
       };
       expect(capitalSchema.safeParse(data).success).toBe(true);
+      expect(capitalTransactionSchema.safeParse(data).success).toBe(true);
+    });
+
+    it('should validate capital update with partial fields', () => {
+      expect(capitalUpdateSchema.safeParse({ amount: 30000 }).success).toBe(true);
+      expect(capitalUpdateSchema.safeParse({ description: 'Updated note' }).success).toBe(true);
+      expect(capitalUpdateSchema.safeParse({ transactionType: 'capital_returned' }).success).toBe(true);
+      expect(capitalUpdateSchema.safeParse({ transactionType: 'invalid_type' }).success).toBe(false);
+      expect(capitalUpdateSchema.safeParse({ amount: -500 }).success).toBe(false);
+    });
+
+    it('should reject invalid capital transactions', () => {
+      expect(capitalSchema.safeParse({ transactionDate: '2026-09-02', amount: 1000 }).success).toBe(false); // missing transactionType
+      expect(capitalSchema.safeParse({ transactionType: 'capital_given', amount: 1000 }).success).toBe(false); // missing date
+      expect(capitalSchema.safeParse({ transactionDate: '2026-09-02', transactionType: 'capital_given', amount: 0 }).success).toBe(false); // amount 0
     });
 
     it('should validate login credentials', () => {

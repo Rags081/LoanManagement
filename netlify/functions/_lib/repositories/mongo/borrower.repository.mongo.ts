@@ -12,47 +12,61 @@ import {
 } from '../borrower.repository';
 
 export class MongoBorrowerRepository {
-  private async enrichBorrower(doc: Document): Promise<MappedBorrower> {
+  private async enrichBorrowersBatch(docs: Document[]): Promise<MappedBorrower[]> {
+    if (docs.length === 0) return [];
     const db = await getMongoDb();
-    let creatorName: string | undefined = undefined;
 
-    if (doc.created_by) {
-      const creator = await db
-        .collection(MONGO_COLLECTIONS.USERS)
-        .findOne({ id: Number(doc.created_by) });
-      if (creator) creatorName = String(creator.full_name || '');
-    }
+    const creatorIds = Array.from(new Set(docs.map((d) => Number(d.created_by)).filter(Boolean)));
+    const creators =
+      creatorIds.length > 0
+        ? await db
+            .collection(MONGO_COLLECTIONS.USERS)
+            .find({ id: { $in: creatorIds } })
+            .toArray()
+        : [];
 
-    const createdAt = doc.created_at instanceof Date ? doc.created_at.toISOString() : String(doc.created_at || '');
-    const updatedAt = doc.updated_at instanceof Date ? doc.updated_at.toISOString() : String(doc.updated_at || '');
-    const deletedAt = doc.deleted_at
-      ? doc.deleted_at instanceof Date
-        ? doc.deleted_at.toISOString()
-        : String(doc.deleted_at)
-      : null;
+    const userMap = new Map<number, string>();
+    for (const u of creators) userMap.set(Number(u.id), String(u.full_name || ''));
 
-    return {
-      id: Number(doc.id),
-      borrowerId: String(doc.borrower_id),
-      borrower_id: String(doc.borrower_id),
-      fullName: String(doc.full_name),
-      full_name: String(doc.full_name),
-      phone: String(doc.phone),
-      email: doc.email ? String(doc.email) : null,
-      address: doc.address ? String(doc.address) : null,
-      notes: doc.notes ? String(doc.notes) : null,
-      status: doc.status || 'active',
-      createdBy: Number(doc.created_by),
-      created_by: Number(doc.created_by),
-      creatorName,
-      creator_name: creatorName,
-      createdAt,
-      created_at: createdAt,
-      updatedAt,
-      updated_at: updatedAt,
-      deletedAt,
-      deleted_at: deletedAt,
-    };
+    return docs.map((doc) => {
+      const createdAt = doc.created_at instanceof Date ? doc.created_at.toISOString() : String(doc.created_at || '');
+      const updatedAt = doc.updated_at instanceof Date ? doc.updated_at.toISOString() : String(doc.updated_at || '');
+      const deletedAt = doc.deleted_at
+        ? doc.deleted_at instanceof Date
+          ? doc.deleted_at.toISOString()
+          : String(doc.deleted_at)
+        : null;
+
+      const creatorName = doc.created_by ? userMap.get(Number(doc.created_by)) : undefined;
+
+      return {
+        id: Number(doc.id),
+        borrowerId: String(doc.borrower_id),
+        borrower_id: String(doc.borrower_id),
+        fullName: String(doc.full_name),
+        full_name: String(doc.full_name),
+        phone: String(doc.phone),
+        email: doc.email ? String(doc.email) : null,
+        address: doc.address ? String(doc.address) : null,
+        notes: doc.notes ? String(doc.notes) : null,
+        status: doc.status || 'active',
+        createdBy: Number(doc.created_by),
+        created_by: Number(doc.created_by),
+        creatorName,
+        creator_name: creatorName,
+        createdAt,
+        created_at: createdAt,
+        updatedAt,
+        updated_at: updatedAt,
+        deletedAt,
+        deleted_at: deletedAt,
+      };
+    });
+  }
+
+  private async enrichBorrower(doc: Document): Promise<MappedBorrower> {
+    const results = await this.enrichBorrowersBatch([doc]);
+    return results[0];
   }
 
   async findById(id: number): Promise<MappedBorrower | null> {
@@ -116,7 +130,7 @@ export class MongoBorrowerRepository {
       .limit(limit)
       .toArray();
 
-    const data = await Promise.all(docs.map((doc) => this.enrichBorrower(doc)));
+    const data = await this.enrichBorrowersBatch(docs);
     return { data, total, page, limit, totalPages };
   }
 
@@ -133,7 +147,7 @@ export class MongoBorrowerRepository {
       .limit(limit)
       .toArray();
 
-    return Promise.all(docs.map((doc) => this.enrichBorrower(doc)));
+    return this.enrichBorrowersBatch(docs);
   }
 
   async create(data: BorrowerCreateDto, createdBy: number): Promise<MappedBorrower> {

@@ -1,6 +1,7 @@
 import { RowDataPacket, PoolConnection } from 'mysql2/promise';
 import { getPool } from '../database';
 import { loanRepository } from './loan.repository';
+import { calculateLoanFinancials } from '../financial-engine';
 import {
   CapitalMetrics,
   LoanMetrics,
@@ -120,17 +121,47 @@ export class DashboardRepository {
     const intRec = Number(pay.int_rec || 0);
     const totalRec = Number(pay.total_rec || 0);
 
-    // Sum canonical outstanding balances across all non-settled active and overdue loans
+    // Fetch active/overdue loans and payments in batch
     const [activeLoans] = await conn.query<RowDataPacket[]>(
-      `SELECT id FROM loans WHERE status IN ('active', 'overdue') AND deleted_at IS NULL`
+      `SELECT * FROM loans WHERE status IN ('active', 'overdue') AND deleted_at IS NULL`
     );
+
+    const [payments] = await conn.query<RowDataPacket[]>(
+      `SELECT p.* FROM payments p
+       JOIN loans l ON l.id = p.loan_id
+       WHERE l.status IN ('active', 'overdue') AND l.deleted_at IS NULL AND p.is_void = FALSE
+       ORDER BY p.payment_date ASC, p.id ASC`
+    );
+
+    const paymentsMap = new Map<number, RowDataPacket[]>();
+    for (const p of payments) {
+      const lId = Number(p.loan_id);
+      if (!paymentsMap.has(lId)) paymentsMap.set(lId, []);
+      paymentsMap.get(lId)!.push(p);
+    }
 
     let outstandingPrinc = 0;
     let outstandingInt = 0;
     let totalOutstanding = 0;
 
     for (const row of activeLoans) {
-      const calc = await loanRepository.calculateOutstanding(row.id, conn);
+      const lPayments = paymentsMap.get(Number(row.id)) || [];
+      const calc = calculateLoanFinancials(
+        {
+          id: Number(row.id),
+          loanId: String(row.loan_id),
+          principalAmount: Number(row.principal_amount || 0),
+          interestRate: Number(row.interest_rate || 0),
+          interestRateType: row.interest_rate_type || 'monthly',
+          loanGivenDate: row.loan_given_date,
+          dueDate: row.due_date,
+          status: row.status,
+          settlementDate: row.settlement_date,
+          total_expected_interest: Number(row.total_expected_interest || 0),
+        },
+        lPayments,
+        new Date()
+      );
       outstandingPrinc += calc.principalOutstanding;
       outstandingInt += calc.interestOutstanding;
       totalOutstanding += calc.totalOutstanding;
@@ -149,25 +180,49 @@ export class DashboardRepository {
   async getProfitMetrics(connection?: PoolConnection): Promise<ProfitMetrics> {
     const conn = connection || getPool();
 
-    // 1. Get all non-deleted loans and sum expected interest using the authoritative calculation
+    // 1. Get all non-deleted loans and all payments in batch
     const [loanRows] = await conn.query<RowDataPacket[]>(
-      `SELECT id FROM loans WHERE deleted_at IS NULL`
+      `SELECT * FROM loans WHERE deleted_at IS NULL`
     );
+
+    const [payments] = await conn.query<RowDataPacket[]>(
+      `SELECT p.* FROM payments p
+       JOIN loans l ON l.id = p.loan_id
+       WHERE l.deleted_at IS NULL AND p.is_void = FALSE
+       ORDER BY p.payment_date ASC, p.id ASC`
+    );
+
+    const paymentsMap = new Map<number, RowDataPacket[]>();
+    let realized = 0;
+    for (const p of payments) {
+      const lId = Number(p.loan_id);
+      realized += Number(p.interest_portion || 0);
+      if (!paymentsMap.has(lId)) paymentsMap.set(lId, []);
+      paymentsMap.get(lId)!.push(p);
+    }
 
     let totalExpectedInterest = 0;
     for (const row of loanRows) {
-      const calc = await loanRepository.calculateOutstanding(row.id, conn);
+      const lPayments = paymentsMap.get(Number(row.id)) || [];
+      const calc = calculateLoanFinancials(
+        {
+          id: Number(row.id),
+          loanId: String(row.loan_id),
+          principalAmount: Number(row.principal_amount || 0),
+          interestRate: Number(row.interest_rate || 0),
+          interestRateType: row.interest_rate_type || 'monthly',
+          loanGivenDate: row.loan_given_date,
+          dueDate: row.due_date,
+          status: row.status,
+          settlementDate: row.settlement_date,
+          total_expected_interest: Number(row.total_expected_interest || 0),
+        },
+        lPayments,
+        new Date()
+      );
       totalExpectedInterest += calc.interestExpected;
     }
 
-    // 2. Total interest profit earned from valid payments
-    const [payRows] = await conn.query<RowDataPacket[]>(
-      `SELECT IFNULL(SUM(p.interest_portion), 0) AS realized_interest
-       FROM payments p
-       JOIN loans l ON l.id = p.loan_id
-       WHERE p.is_void = FALSE AND l.deleted_at IS NULL`
-    );
-    const realized = Number(payRows[0]?.realized_interest || 0);
     const pending = Math.max(0, totalExpectedInterest - realized);
 
     return {

@@ -1,6 +1,6 @@
 import { getMongoDb, MONGO_COLLECTIONS } from '../../db/mongodb';
 import { mongoLoanRepository } from './loan.repository.mongo';
-import { toLocalDateString } from '../../financial-engine';
+import { toLocalDateString, calculateLoanFinancials } from '../../financial-engine';
 import {
   CapitalStatementItem,
   LoanReportItem,
@@ -12,6 +12,7 @@ import {
   MonthlyCollectionItem,
   ReportFilterParams,
 } from '../../../../src/types/report';
+import { Document } from 'mongodb';
 
 export class MongoReportRepository {
   /**
@@ -96,21 +97,56 @@ export class MongoReportRepository {
       .sort({ loan_given_date: -1, id: -1 })
       .toArray();
 
-    const borrowers = await db.collection(MONGO_COLLECTIONS.BORROWERS).find().toArray();
-    const borrowerMap = new Map<number, { full_name?: string; phone?: string }>();
+    if (docs.length === 0) return [];
+
+    const borrowerIds = Array.from(new Set(docs.map((d) => Number(d.borrower_id)).filter(Boolean)));
+    const loanIds = docs.map((d) => Number(d.id)).filter(Boolean);
+
+    const [borrowers, payments] = await Promise.all([
+      borrowerIds.length > 0
+        ? db.collection(MONGO_COLLECTIONS.BORROWERS).find({ id: { $in: borrowerIds } }).toArray()
+        : [],
+      loanIds.length > 0
+        ? db.collection(MONGO_COLLECTIONS.PAYMENTS).find({ loan_id: { $in: loanIds }, is_void: false }).sort({ payment_date: 1, id: 1 }).toArray()
+        : [],
+    ]);
+
+    const borrowerMap = new Map<number, Document>();
     for (const b of borrowers) borrowerMap.set(Number(b.id), b);
 
-    const result: LoanReportItem[] = [];
+    const paymentsMap = new Map<number, Document[]>();
+    for (const p of payments) {
+      const lId = Number(p.loan_id);
+      if (!paymentsMap.has(lId)) paymentsMap.set(lId, []);
+      paymentsMap.get(lId)!.push(p);
+    }
 
-    for (const r of docs) {
+    return docs.map((r) => {
       const b = borrowerMap.get(Number(r.borrower_id));
-      const calc = await mongoLoanRepository.calculateOutstanding(Number(r.id));
+      const lPayments = paymentsMap.get(Number(r.id)) || [];
 
-      result.push({
+      const calc = calculateLoanFinancials(
+        {
+          id: Number(r.id),
+          loanId: String(r.loan_id),
+          principalAmount: Number(r.principal_amount || 0),
+          interestRate: Number(r.interest_rate || 0),
+          interestRateType: r.interest_rate_type || 'monthly',
+          loanGivenDate: r.loan_given_date as string | Date,
+          dueDate: r.due_date as string | Date | null,
+          status: r.status,
+          settlementDate: r.settlement_date as string | Date | null,
+          total_expected_interest: Number(r.total_expected_interest || 0),
+        },
+        lPayments,
+        new Date()
+      );
+
+      return {
         id: Number(r.id),
         loanId: String(r.loan_id),
-        borrowerName: b?.full_name || '',
-        borrowerPhone: b?.phone || '',
+        borrowerName: b ? String(b.full_name || '') : '',
+        borrowerPhone: b ? String(b.phone || '') : '',
         principalAmount: Number(r.principal_amount || 0),
         interestRate: Number(r.interest_rate || 0),
         interestRateType: r.interest_rate_type,
@@ -125,10 +161,8 @@ export class MongoReportRepository {
         principalOutstanding: calc.principalOutstanding,
         interestOutstanding: calc.interestOutstanding,
         totalOutstanding: calc.totalOutstanding,
-      });
-    }
-
-    return result;
+      };
+    });
   }
 
   /**
@@ -148,28 +182,30 @@ export class MongoReportRepository {
       ];
     }
 
-    const borrowers = await db
-      .collection(MONGO_COLLECTIONS.BORROWERS)
-      .find(query)
-      .sort({ full_name: 1 })
-      .toArray();
-
-    const allLoans = await db.collection(MONGO_COLLECTIONS.LOANS).find({ deleted_at: null }).toArray();
-    const allPayments = await db.collection(MONGO_COLLECTIONS.PAYMENTS).find({ is_void: false }).toArray();
+    const [borrowers, allLoans, allPayments] = await Promise.all([
+      db.collection(MONGO_COLLECTIONS.BORROWERS).find(query).sort({ full_name: 1 }).toArray(),
+      db.collection(MONGO_COLLECTIONS.LOANS).find({ deleted_at: null }).toArray(),
+      db.collection(MONGO_COLLECTIONS.PAYMENTS).find({ is_void: false }).sort({ payment_date: 1, id: 1 }).toArray(),
+    ]);
 
     const loanPaymentMap = new Map<number, { principal: number; total: number }>();
+    const loanPaymentsListMap = new Map<number, Document[]>();
+
     for (const p of allPayments) {
       const lId = Number(p.loan_id);
       if (!loanPaymentMap.has(lId)) loanPaymentMap.set(lId, { principal: 0, total: 0 });
       loanPaymentMap.get(lId)!.principal += Number(p.principal_portion || 0);
       loanPaymentMap.get(lId)!.total += Number(p.payment_amount || 0);
+
+      if (!loanPaymentsListMap.has(lId)) loanPaymentsListMap.set(lId, []);
+      loanPaymentsListMap.get(lId)!.push(p);
     }
 
-    const borrowerLoansMap = new Map<number, Array<{ id: number; principal_amount?: number; status?: string }>>();
+    const borrowerLoansMap = new Map<number, Document[]>();
     for (const l of allLoans) {
       const bId = Number(l.borrower_id);
       if (!borrowerLoansMap.has(bId)) borrowerLoansMap.set(bId, []);
-      borrowerLoansMap.get(bId)!.push({ id: Number(l.id), principal_amount: Number(l.principal_amount), status: l.status });
+      borrowerLoansMap.get(bId)!.push(l);
     }
 
     const result: BorrowerReportItem[] = [];
@@ -188,7 +224,23 @@ export class MongoReportRepository {
       for (const l of bLoans) {
         if (l.status === 'active' || l.status === 'overdue') {
           activeLoans++;
-          const calc = await mongoLoanRepository.calculateOutstanding(Number(l.id));
+          const lPayments = loanPaymentsListMap.get(Number(l.id)) || [];
+          const calc = calculateLoanFinancials(
+            {
+              id: Number(l.id),
+              loanId: String(l.loan_id),
+              principalAmount: Number(l.principal_amount || 0),
+              interestRate: Number(l.interest_rate || 0),
+              interestRateType: l.interest_rate_type || 'monthly',
+              loanGivenDate: l.loan_given_date as string | Date,
+              dueDate: l.due_date as string | Date | null,
+              status: l.status,
+              settlementDate: l.settlement_date as string | Date | null,
+              total_expected_interest: Number(l.total_expected_interest || 0),
+            },
+            lPayments,
+            new Date()
+          );
           totalOutstanding += calc.totalOutstanding;
         }
         totalBorrowed += Number(l.principal_amount || 0);
@@ -251,13 +303,26 @@ export class MongoReportRepository {
       .sort({ payment_date: -1, id: -1 })
       .toArray();
 
-    const loans = await db.collection(MONGO_COLLECTIONS.LOANS).find().toArray();
-    const loanMap = new Map<number, { loan_id?: string; borrower_id?: number }>();
-    for (const l of loans) loanMap.set(Number(l.id), { loan_id: l.loan_id, borrower_id: Number(l.borrower_id) });
+    if (docs.length === 0) return [];
 
-    const borrowers = await db.collection(MONGO_COLLECTIONS.BORROWERS).find().toArray();
-    const borrowerMap = new Map<number, { full_name?: string }>();
-    for (const b of borrowers) borrowerMap.set(Number(b.id), { full_name: b.full_name });
+    const loanIds = Array.from(new Set(docs.map((p) => Number(p.loan_id)).filter(Boolean)));
+    const loans = loanIds.length > 0
+      ? await db.collection(MONGO_COLLECTIONS.LOANS).find({ id: { $in: loanIds } }).toArray()
+      : [];
+
+    const loanMap = new Map<number, Document>();
+    const borrowerIds: number[] = [];
+    for (const l of loans) {
+      loanMap.set(Number(l.id), l);
+      if (l.borrower_id) borrowerIds.push(Number(l.borrower_id));
+    }
+
+    const borrowers = borrowerIds.length > 0
+      ? await db.collection(MONGO_COLLECTIONS.BORROWERS).find({ id: { $in: borrowerIds } }).toArray()
+      : [];
+
+    const borrowerMap = new Map<number, Document>();
+    for (const b of borrowers) borrowerMap.set(Number(b.id), b);
 
     const results: PaymentReportItem[] = [];
 
@@ -283,8 +348,8 @@ export class MongoReportRepository {
         id: Number(p.id),
         paymentId: String(p.payment_id),
         paymentDate: toLocalDateString(p.payment_date as string | Date),
-        loanId: loan?.loan_id || '',
-        borrowerName: borrower?.full_name || '',
+        loanId: loan?.loan_id ? String(loan.loan_id) : '',
+        borrowerName: borrower ? String(borrower.full_name || '') : '',
         paymentAmount: Number(p.payment_amount || 0),
         principalPortion: Number(p.principal_portion || 0),
         interestPortion: Number(p.interest_portion || 0),
@@ -312,9 +377,29 @@ export class MongoReportRepository {
       .sort({ principal_amount: -1 })
       .toArray();
 
-    const borrowers = await db.collection(MONGO_COLLECTIONS.BORROWERS).find().toArray();
-    const borrowerMap = new Map<number, { full_name?: string; phone?: string }>();
-    for (const b of borrowers) borrowerMap.set(Number(b.id), { full_name: b.full_name, phone: b.phone });
+    if (docs.length === 0) return [];
+
+    const borrowerIds = Array.from(new Set(docs.map((d) => Number(d.borrower_id)).filter(Boolean)));
+    const loanIds = docs.map((d) => Number(d.id)).filter(Boolean);
+
+    const [borrowers, payments] = await Promise.all([
+      borrowerIds.length > 0
+        ? db.collection(MONGO_COLLECTIONS.BORROWERS).find({ id: { $in: borrowerIds } }).toArray()
+        : [],
+      loanIds.length > 0
+        ? db.collection(MONGO_COLLECTIONS.PAYMENTS).find({ loan_id: { $in: loanIds }, is_void: false }).sort({ payment_date: 1, id: 1 }).toArray()
+        : [],
+    ]);
+
+    const borrowerMap = new Map<number, Document>();
+    for (const b of borrowers) borrowerMap.set(Number(b.id), b);
+
+    const paymentsMap = new Map<number, Document[]>();
+    for (const p of payments) {
+      const lId = Number(p.loan_id);
+      if (!paymentsMap.has(lId)) paymentsMap.set(lId, []);
+      paymentsMap.get(lId)!.push(p);
+    }
 
     const result: OutstandingReportItem[] = [];
 
@@ -330,13 +415,30 @@ export class MongoReportRepository {
         if (!matches) continue;
       }
 
-      const calc = await mongoLoanRepository.calculateOutstanding(Number(r.id));
+      const lPayments = paymentsMap.get(Number(r.id)) || [];
+      const calc = calculateLoanFinancials(
+        {
+          id: Number(r.id),
+          loanId: String(r.loan_id),
+          principalAmount: Number(r.principal_amount || 0),
+          interestRate: Number(r.interest_rate || 0),
+          interestRateType: r.interest_rate_type || 'monthly',
+          loanGivenDate: r.loan_given_date as string | Date,
+          dueDate: r.due_date as string | Date | null,
+          status: r.status,
+          settlementDate: r.settlement_date as string | Date | null,
+          total_expected_interest: Number(r.total_expected_interest || 0),
+        },
+        lPayments,
+        new Date()
+      );
+
       if (calc.totalOutstanding > 0) {
         result.push({
           id: Number(r.id),
           loanId: String(r.loan_id),
-          borrowerName: b?.full_name || '',
-          borrowerPhone: b?.phone || '',
+          borrowerName: b ? String(b.full_name || '') : '',
+          borrowerPhone: b ? String(b.phone || '') : '',
           principalAmount: Number(r.principal_amount || 0),
           principalOutstanding: calc.principalOutstanding,
           interestOutstanding: calc.interestOutstanding,
@@ -396,15 +498,41 @@ export class MongoReportRepository {
       query.payment_date = dateQ;
     }
 
-    const payDocs = await db.collection(MONGO_COLLECTIONS.PAYMENTS).find(query).toArray();
-    const loanDocs = await db.collection(MONGO_COLLECTIONS.LOANS).find({ deleted_at: null }).toArray();
+    const [payDocs, loanDocs] = await Promise.all([
+      db.collection(MONGO_COLLECTIONS.PAYMENTS).find(query).sort({ payment_date: 1, id: 1 }).toArray(),
+      db.collection(MONGO_COLLECTIONS.LOANS).find({ deleted_at: null }).toArray(),
+    ]);
+
+    const paymentsMap = new Map<number, Document[]>();
+    for (const py of payDocs) {
+      const lId = Number(py.loan_id);
+      if (!paymentsMap.has(lId)) paymentsMap.set(lId, []);
+      paymentsMap.get(lId)!.push(py);
+    }
 
     const periodMap = new Map<string, { expected: number; realized: number }>();
 
     for (const l of loanDocs) {
       const p = toLocalDateString(l.loan_given_date as string | Date).substring(0, 7);
       if (!periodMap.has(p)) periodMap.set(p, { expected: 0, realized: 0 });
-      const calc = await mongoLoanRepository.calculateOutstanding(Number(l.id));
+
+      const lPayments = paymentsMap.get(Number(l.id)) || [];
+      const calc = calculateLoanFinancials(
+        {
+          id: Number(l.id),
+          loanId: String(l.loan_id),
+          principalAmount: Number(l.principal_amount || 0),
+          interestRate: Number(l.interest_rate || 0),
+          interestRateType: l.interest_rate_type || 'monthly',
+          loanGivenDate: l.loan_given_date as string | Date,
+          dueDate: l.due_date as string | Date | null,
+          status: l.status,
+          settlementDate: l.settlement_date as string | Date | null,
+          total_expected_interest: Number(l.total_expected_interest || 0),
+        },
+        lPayments,
+        new Date()
+      );
       periodMap.get(p)!.expected += calc.interestExpected;
     }
 
@@ -481,3 +609,4 @@ export class MongoReportRepository {
 }
 
 export const mongoReportRepository = new MongoReportRepository();
+

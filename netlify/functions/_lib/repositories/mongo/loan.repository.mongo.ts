@@ -19,174 +19,188 @@ import {
 } from '../loan.repository';
 
 export class MongoLoanRepository {
+  private async enrichLoansBatch(
+    docs: Document[],
+    interestDetails: InterestPaymentDetail[] = []
+  ): Promise<MappedLoan[]> {
+    if (docs.length === 0) return [];
+    const db = await getMongoDb();
+
+    const borrowerIds = Array.from(new Set(docs.map((d) => Number(d.borrower_id)).filter(Boolean)));
+    const creatorIds = Array.from(new Set(docs.map((d) => Number(d.created_by)).filter(Boolean)));
+    const loanIds = docs.map((d) => Number(d.id)).filter(Boolean);
+
+    const [borrowers, creators, allPayments] = await Promise.all([
+      borrowerIds.length > 0
+        ? db.collection(MONGO_COLLECTIONS.BORROWERS).find({ id: { $in: borrowerIds } }).toArray()
+        : [],
+      creatorIds.length > 0
+        ? db.collection(MONGO_COLLECTIONS.USERS).find({ id: { $in: creatorIds } }).toArray()
+        : [],
+      loanIds.length > 0
+        ? db.collection(MONGO_COLLECTIONS.PAYMENTS).find({ loan_id: { $in: loanIds }, is_void: false }).sort({ payment_date: 1, id: 1 }).toArray()
+        : [],
+    ]);
+
+    const borrowerMap = new Map<number, Document>();
+    for (const b of borrowers) borrowerMap.set(Number(b.id), b);
+
+    const userMap = new Map<number, Document>();
+    for (const u of creators) userMap.set(Number(u.id), u);
+
+    const paymentsMap = new Map<number, Document[]>();
+    for (const p of allPayments) {
+      const lId = Number(p.loan_id);
+      if (!paymentsMap.has(lId)) paymentsMap.set(lId, []);
+      paymentsMap.get(lId)!.push(p);
+    }
+
+    return docs.map((doc) => {
+      const bDoc = doc.borrower_id ? borrowerMap.get(Number(doc.borrower_id)) : undefined;
+      const uDoc = doc.created_by ? userMap.get(Number(doc.created_by)) : undefined;
+      const payments = paymentsMap.get(Number(doc.id)) || [];
+
+      let totalReceived = 0;
+      let principalReceived = 0;
+      let interestReceived = 0;
+      let lastPaymentDate: string | null = null;
+      const computedInterestDetails: InterestPaymentDetail[] = [];
+
+      for (const p of payments) {
+        const pAmt = Number(p.payment_amount || 0);
+        const pPrinc = Number(p.principal_portion || 0);
+        const pInt = Number(p.interest_portion || 0);
+        const pDate = toLocalDateString(p.payment_date as string | Date);
+
+        totalReceived += pAmt;
+        principalReceived += pPrinc;
+        interestReceived += pInt;
+        lastPaymentDate = pDate;
+
+        if (pInt > 0) {
+          computedInterestDetails.push({
+            id: Number(p.id),
+            paymentId: String(p.payment_id),
+            receiptNumber: String(p.payment_id),
+            paymentDate: pDate,
+            interestPortion: pInt,
+            paymentAmount: pAmt,
+            paymentMode: String(p.payment_mode || ''),
+          });
+        }
+      }
+
+      const principal = Number(doc.principal_amount || 0);
+      const rate = Number(doc.interest_rate || 0);
+      const rateType = (doc.interest_rate_type || 'monthly') as 'monthly' | 'daily' | 'flat';
+      const monthlyInterestAmount = calculateMonthlyInterest(principal, rate, rateType);
+      const dailyInterestAmount = calculateDailyInterest(principal, rate, rateType);
+
+      const financials = calculateLoanFinancials(
+        {
+          id: Number(doc.id),
+          loanId: String(doc.loan_id),
+          principalAmount: principal,
+          interestRate: rate,
+          interestRateType: rateType,
+          loanGivenDate: doc.loan_given_date as string | Date,
+          dueDate: doc.due_date as string | Date | null,
+          status: doc.status,
+          settlementDate: doc.settlement_date as string | Date | null,
+          total_expected_interest: Number(doc.total_expected_interest || 0),
+        },
+        payments,
+        new Date()
+      );
+
+      const givenDate = toLocalDateString(doc.loan_given_date as string | Date);
+      const dueDate = doc.due_date ? toLocalDateString(doc.due_date as string | Date) : null;
+      const createdAt = doc.created_at instanceof Date ? doc.created_at.toISOString() : String(doc.created_at || '');
+      const updatedAt = doc.updated_at instanceof Date ? doc.updated_at.toISOString() : String(doc.updated_at || '');
+      const deletedAt = doc.deleted_at
+        ? doc.deleted_at instanceof Date
+          ? doc.deleted_at.toISOString()
+          : String(doc.deleted_at)
+        : null;
+
+      const details = interestDetails.length > 0 ? interestDetails : computedInterestDetails;
+
+      return {
+        id: Number(doc.id),
+        loanId: String(doc.loan_id),
+        loan_id: String(doc.loan_id),
+        borrowerId: Number(doc.borrower_id),
+        borrower_id: Number(doc.borrower_id),
+        borrowerName: bDoc ? String(bDoc.full_name || '') : undefined,
+        borrower_name: bDoc ? String(bDoc.full_name || '') : undefined,
+        borrowerPhone: bDoc ? String(bDoc.phone || '') : undefined,
+        borrower_phone: bDoc ? String(bDoc.phone || '') : undefined,
+        borrowerIdCode: bDoc ? String(bDoc.borrower_id || '') : undefined,
+        borrower_id_code: bDoc ? String(bDoc.borrower_id || '') : undefined,
+        principalAmount: principal,
+        principal_amount: principal,
+        interestRate: rate,
+        interest_rate: rate,
+        interestRateType: rateType,
+        interest_rate_type: rateType,
+        tenure: doc.tenure !== null && doc.tenure !== undefined ? Number(doc.tenure) : null,
+        tenure_unit: doc.tenure_unit || null,
+        loanGivenDate: givenDate,
+        loan_given_date: givenDate,
+        dueDate,
+        due_date: dueDate,
+        status: financials.isCompleted ? 'completed' : doc.status,
+        settlementDate: financials.settlementDate,
+        settlement_date: financials.settlementDate,
+        totalExpectedInterest: financials.interestExpected,
+        total_expected_interest: financials.interestExpected,
+        totalExpectedRepayment: financials.totalExpected,
+        total_expected_repayment: financials.totalExpected,
+        monthlyInterestAmount,
+        dailyInterestAmount,
+        notes: doc.notes ? String(doc.notes) : null,
+        createdBy: Number(doc.created_by),
+        created_by: Number(doc.created_by),
+        creatorName: uDoc ? String(uDoc.full_name || '') : undefined,
+        creator_name: uDoc ? String(uDoc.full_name || '') : undefined,
+        createdAt,
+        created_at: createdAt,
+        updatedAt,
+        updated_at: updatedAt,
+        deletedAt,
+        deleted_at: deletedAt,
+        // Aggregated payment fields
+        totalReceived,
+        total_received: totalReceived,
+        principalReceived,
+        principal_received: principalReceived,
+        interestReceived,
+        interest_received: interestReceived,
+        lastPaymentDate,
+        last_payment_date: lastPaymentDate,
+        // Calculated dynamic ledger fields
+        principalOutstanding: financials.principalOutstanding,
+        interestOutstanding: financials.interestOutstanding,
+        totalOutstanding: financials.totalOutstanding,
+        accruedInterest: financials.accruedInterest,
+        isOverdue: financials.isOverdue,
+        daysOverdue: financials.daysOverdue,
+        elapsedDays: financials.elapsedDays,
+        elapsedTenure: financials.elapsedTenure,
+        actualTenure: financials.actualTenure,
+        isSettled: financials.isCompleted,
+        isCompleted: financials.isCompleted,
+        interestPaymentDetails: details,
+      };
+    });
+  }
+
   private async enrichLoan(
     doc: Document,
     interestDetails: InterestPaymentDetail[] = []
   ): Promise<MappedLoan> {
-    const db = await getMongoDb();
-    let borrowerName: string | undefined;
-    let borrowerPhone: string | undefined;
-    let borrowerIdCode: string | undefined;
-    let creatorName: string | undefined;
-
-    if (doc.borrower_id) {
-      const borrower = await db
-        .collection(MONGO_COLLECTIONS.BORROWERS)
-        .findOne({ id: Number(doc.borrower_id) });
-      if (borrower) {
-        borrowerName = String(borrower.full_name || '');
-        borrowerPhone = String(borrower.phone || '');
-        borrowerIdCode = String(borrower.borrower_id || '');
-      }
-    }
-
-    if (doc.created_by) {
-      const creator = await db
-        .collection(MONGO_COLLECTIONS.USERS)
-        .findOne({ id: Number(doc.created_by) });
-      if (creator) creatorName = String(creator.full_name || '');
-    }
-
-    // Fetch payments for aggregated fields and interest detail list
-    const payments = await db
-      .collection(MONGO_COLLECTIONS.PAYMENTS)
-      .find({ loan_id: Number(doc.id), is_void: false })
-      .sort({ payment_date: 1, id: 1 })
-      .toArray();
-
-    let totalReceived = 0;
-    let principalReceived = 0;
-    let interestReceived = 0;
-    let lastPaymentDate: string | null = null;
-    const computedInterestDetails: InterestPaymentDetail[] = [];
-
-    for (const p of payments) {
-      const pAmt = Number(p.payment_amount || 0);
-      const pPrinc = Number(p.principal_portion || 0);
-      const pInt = Number(p.interest_portion || 0);
-      const pDate = toLocalDateString(p.payment_date as string | Date);
-
-      totalReceived += pAmt;
-      principalReceived += pPrinc;
-      interestReceived += pInt;
-      lastPaymentDate = pDate;
-
-      if (pInt > 0) {
-        computedInterestDetails.push({
-          id: Number(p.id),
-          paymentId: String(p.payment_id),
-          receiptNumber: String(p.payment_id),
-          paymentDate: pDate,
-          interestPortion: pInt,
-          paymentAmount: pAmt,
-          paymentMode: String(p.payment_mode || ''),
-        });
-      }
-    }
-
-    const principal = Number(doc.principal_amount || 0);
-    const rate = Number(doc.interest_rate || 0);
-    const rateType = (doc.interest_rate_type || 'monthly') as 'monthly' | 'daily' | 'flat';
-    const monthlyInterestAmount = calculateMonthlyInterest(principal, rate, rateType);
-    const dailyInterestAmount = calculateDailyInterest(principal, rate, rateType);
-
-    // Call shared pure calculation engine
-    const financials = calculateLoanFinancials(
-      {
-        id: Number(doc.id),
-        loanId: String(doc.loan_id),
-        principalAmount: principal,
-        interestRate: rate,
-        interestRateType: rateType,
-        loanGivenDate: doc.loan_given_date as string | Date,
-        dueDate: doc.due_date as string | Date | null,
-        status: doc.status,
-        settlementDate: doc.settlement_date as string | Date | null,
-        total_expected_interest: Number(doc.total_expected_interest || 0),
-      },
-      payments,
-      new Date()
-    );
-
-    const givenDate = toLocalDateString(doc.loan_given_date as string | Date);
-    const dueDate = doc.due_date ? toLocalDateString(doc.due_date as string | Date) : null;
-    const createdAt = doc.created_at instanceof Date ? doc.created_at.toISOString() : String(doc.created_at || '');
-    const updatedAt = doc.updated_at instanceof Date ? doc.updated_at.toISOString() : String(doc.updated_at || '');
-    const deletedAt = doc.deleted_at
-      ? doc.deleted_at instanceof Date
-        ? doc.deleted_at.toISOString()
-        : String(doc.deleted_at)
-      : null;
-
-    const details = interestDetails.length > 0 ? interestDetails : computedInterestDetails;
-
-    return {
-      id: Number(doc.id),
-      loanId: String(doc.loan_id),
-      loan_id: String(doc.loan_id),
-      borrowerId: Number(doc.borrower_id),
-      borrower_id: Number(doc.borrower_id),
-      borrowerName,
-      borrower_name: borrowerName,
-      borrowerPhone,
-      borrower_phone: borrowerPhone,
-      borrowerIdCode,
-      borrower_id_code: borrowerIdCode,
-      principalAmount: principal,
-      principal_amount: principal,
-      interestRate: rate,
-      interest_rate: rate,
-      interestRateType: rateType,
-      interest_rate_type: rateType,
-      tenure: doc.tenure !== null && doc.tenure !== undefined ? Number(doc.tenure) : null,
-      tenure_unit: doc.tenure_unit || null,
-      loanGivenDate: givenDate,
-      loan_given_date: givenDate,
-      dueDate,
-      due_date: dueDate,
-      status: financials.isCompleted ? 'completed' : doc.status,
-      settlementDate: financials.settlementDate,
-      settlement_date: financials.settlementDate,
-      totalExpectedInterest: financials.interestExpected,
-      total_expected_interest: financials.interestExpected,
-      totalExpectedRepayment: financials.totalExpected,
-      total_expected_repayment: financials.totalExpected,
-      monthlyInterestAmount,
-      dailyInterestAmount,
-      notes: doc.notes ? String(doc.notes) : null,
-      createdBy: Number(doc.created_by),
-      created_by: Number(doc.created_by),
-      creatorName,
-      creator_name: creatorName,
-      createdAt,
-      created_at: createdAt,
-      updatedAt,
-      updated_at: updatedAt,
-      deletedAt,
-      deleted_at: deletedAt,
-      // Aggregated payment fields
-      totalReceived,
-      total_received: totalReceived,
-      principalReceived,
-      principal_received: principalReceived,
-      interestReceived,
-      interest_received: interestReceived,
-      lastPaymentDate,
-      last_payment_date: lastPaymentDate,
-      // Calculated dynamic ledger fields
-      principalOutstanding: financials.principalOutstanding,
-      interestOutstanding: financials.interestOutstanding,
-      totalOutstanding: financials.totalOutstanding,
-      accruedInterest: financials.accruedInterest,
-      isOverdue: financials.isOverdue,
-      daysOverdue: financials.daysOverdue,
-      elapsedDays: financials.elapsedDays,
-      elapsedTenure: financials.elapsedTenure,
-      actualTenure: financials.actualTenure,
-      isSettled: financials.isCompleted,
-      isCompleted: financials.isCompleted,
-      interestPaymentDetails: details,
-    };
+    const results = await this.enrichLoansBatch([doc], interestDetails);
+    return results[0];
   }
 
   async findById(id: number): Promise<MappedLoan | null> {
@@ -213,7 +227,7 @@ export class MongoLoanRepository {
       .sort({ loan_given_date: -1, id: -1 })
       .toArray();
 
-    return Promise.all(docs.map((doc) => this.enrichLoan(doc)));
+    return this.enrichLoansBatch(docs);
   }
 
   async calculateOutstanding(loanId: number, asOfDate: Date | string = new Date()): Promise<CalculatedOutstandingResult> {
@@ -303,7 +317,7 @@ export class MongoLoanRepository {
       .limit(limit)
       .toArray();
 
-    const data = await Promise.all(docs.map((doc) => this.enrichLoan(doc)));
+    const data = await this.enrichLoansBatch(docs);
     return { data, total, page, limit, totalPages };
   }
 
@@ -557,32 +571,53 @@ export class MongoLoanRepository {
       if (l.status === 'cancelled') cancelledLoans++;
     }
 
-    let totalExpectedInterest = 0;
-    for (const l of loans) {
-      const calc = await this.calculateOutstanding(Number(l.id));
-      totalExpectedInterest += calc.interestExpected;
-    }
-    totalExpectedInterest = Math.round(totalExpectedInterest * 100) / 100;
-
-    // Money received
     const loanIds = loans.map((l) => Number(l.id));
     let totalReceived = 0;
     let principalCollected = 0;
     let interestCollected = 0;
+    let totalExpectedInterest = 0;
 
     if (loanIds.length > 0) {
       const payments = await db
         .collection(MONGO_COLLECTIONS.PAYMENTS)
         .find({ loan_id: { $in: loanIds }, is_void: false })
+        .sort({ payment_date: 1, id: 1 })
         .toArray();
 
+      const paymentsMap = new Map<number, Document[]>();
       for (const p of payments) {
+        const lId = Number(p.loan_id);
+        if (!paymentsMap.has(lId)) paymentsMap.set(lId, []);
+        paymentsMap.get(lId)!.push(p);
+
         totalReceived += Number(p.payment_amount || 0);
         principalCollected += Number(p.principal_portion || 0);
         interestCollected += Number(p.interest_portion || 0);
       }
+
+      for (const l of loans) {
+        const lPayments = paymentsMap.get(Number(l.id)) || [];
+        const calc = calculateLoanFinancials(
+          {
+            id: Number(l.id),
+            loanId: String(l.loan_id),
+            principalAmount: Number(l.principal_amount || 0),
+            interestRate: Number(l.interest_rate || 0),
+            interestRateType: l.interest_rate_type || 'monthly',
+            loanGivenDate: l.loan_given_date as string | Date,
+            dueDate: l.due_date as string | Date | null,
+            status: l.status,
+            settlementDate: l.settlement_date as string | Date | null,
+            total_expected_interest: Number(l.total_expected_interest || 0),
+          },
+          lPayments,
+          new Date()
+        );
+        totalExpectedInterest += calc.interestExpected;
+      }
     }
 
+    totalExpectedInterest = Math.round(totalExpectedInterest * 100) / 100;
     const principalOutstanding = Math.max(0, totalPrincipalLent - principalCollected);
 
     return {
@@ -618,7 +653,7 @@ export class MongoLoanRepository {
       })
       .toArray();
 
-    const mapped = await Promise.all(docs.map((doc) => this.enrichLoan(doc)));
+    const mapped = await this.enrichLoansBatch(docs);
     return mapped.filter((l) => l.totalOutstanding > 0);
   }
 }
