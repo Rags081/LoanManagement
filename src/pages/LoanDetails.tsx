@@ -50,7 +50,7 @@ export const LoanDetails: React.FC = () => {
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<LoanStatus>('active');
 
-  const { data: loan, isLoading } = useLoan(id);
+  const { data: loan, isLoading, isError, error, refetch } = useLoan(id);
   const updateMutation = useUpdateLoan();
   const deleteMutation = useDeleteLoan();
   const updateStatusMutation = useUpdateLoanStatus();
@@ -63,6 +63,29 @@ export const LoanDetails: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="h-48 bg-slate-200 rounded-xl animate-pulse" />
           <div className="h-48 bg-slate-200 rounded-xl animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    const errorMsg =
+      (error as unknown as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+      (error as Error)?.message ||
+      'An unexpected error occurred while loading loan details.';
+    return (
+      <div className="text-center py-16 bg-white rounded-xl border border-rose-200 p-8 space-y-4">
+        <p className="text-lg font-bold text-rose-800">Error Loading Loan</p>
+        <p className="text-sm text-slate-500 max-w-md mx-auto">{errorMsg}</p>
+        <div className="flex justify-center gap-3 pt-2">
+          <Button variant="outline" onClick={() => refetch()}>
+            Retry
+          </Button>
+          <Link to="/loans">
+            <Button variant="primary" leftIcon={<ArrowLeft className="w-4 h-4" />}>
+              Back to Loans
+            </Button>
+          </Link>
         </div>
       </div>
     );

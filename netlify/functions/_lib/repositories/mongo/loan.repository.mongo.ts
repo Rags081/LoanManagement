@@ -459,6 +459,76 @@ export class MongoLoanRepository {
     });
   }
 
+  async updateStatus(
+    id: number,
+    status: 'active' | 'overdue' | 'completed' | 'cancelled',
+    updatedBy: number
+  ): Promise<MappedLoan> {
+    const db = await getMongoDb();
+    const existing = await this.findById(id);
+    if (!existing) {
+      throw new Error(`Loan #${id} not found`);
+    }
+
+    const today = toLocalDateString(new Date());
+    const settlementDate = status === 'completed'
+      ? (existing.settlementDate || existing.lastPaymentDate || today)
+      : null;
+
+    const now = new Date();
+    const setFields: Record<string, unknown> = {
+      status,
+      settlement_date: settlementDate,
+      updated_at: now,
+    };
+
+    await db
+      .collection(MONGO_COLLECTIONS.LOANS)
+      .updateOne({ id: Number(id), deleted_at: null }, { $set: setFields });
+
+    await db.collection(MONGO_COLLECTIONS.AUDIT_LOGS).insertOne({
+      user_id: Number(updatedBy),
+      action: 'UPDATE_STATUS',
+      entity: 'loan',
+      entity_id: String(id),
+      old_data: { status: existing.status, settlement_date: existing.settlementDate },
+      new_data: { status, settlement_date: settlementDate },
+      created_at: now,
+    });
+
+    const updated = await this.findById(id);
+    if (!updated) throw new Error(`Loan #${id} not found after status update`);
+    return updated;
+  }
+
+  async softDelete(id: number, deletedBy: number): Promise<void> {
+    return this.delete(id, deletedBy);
+  }
+
+  async getLoanPayments(loanId: number): Promise<Document[]> {
+    const db = await getMongoDb();
+    const payments = await db
+      .collection(MONGO_COLLECTIONS.PAYMENTS)
+      .find({ loan_id: Number(loanId) })
+      .sort({ payment_date: -1, id: -1 })
+      .toArray();
+
+    return payments.map((p) => ({
+      id: Number(p.id),
+      payment_id: String(p.payment_id || ''),
+      receipt_number: String(p.receipt_number || p.payment_id || ''),
+      reference_number: p.reference_number ? String(p.reference_number) : null,
+      payment_date: toLocalDateString(p.payment_date as string | Date),
+      payment_amount: Number(p.payment_amount || 0),
+      principal_portion: Number(p.principal_portion || 0),
+      interest_portion: Number(p.interest_portion || 0),
+      payment_mode: String(p.payment_mode || ''),
+      is_void: Boolean(p.is_void),
+      notes: p.notes ? String(p.notes) : null,
+      created_at: p.created_at instanceof Date ? p.created_at.toISOString() : String(p.created_at || ''),
+    }));
+  }
+
   async getLoanSummary(filters: LoanFilterOptions = {}): Promise<LoanSummary> {
     const db = await getMongoDb();
     const query: Record<string, unknown> = { deleted_at: null };
@@ -473,18 +543,26 @@ export class MongoLoanRepository {
     }
 
     const loans = await db.collection(MONGO_COLLECTIONS.LOANS).find(query).toArray();
-    let totalLent = 0;
-    const totalExpectedRepayment = 0;
+    let totalPrincipalLent = 0;
     let activeLoans = 0;
     let overdueLoans = 0;
     let completedLoans = 0;
+    let cancelledLoans = 0;
 
     for (const l of loans) {
-      totalLent += Number(l.principal_amount || 0);
+      totalPrincipalLent += Number(l.principal_amount || 0);
       if (l.status === 'active') activeLoans++;
       if (l.status === 'overdue') overdueLoans++;
       if (l.status === 'completed') completedLoans++;
+      if (l.status === 'cancelled') cancelledLoans++;
     }
+
+    let totalExpectedInterest = 0;
+    for (const l of loans) {
+      const calc = await this.calculateOutstanding(Number(l.id));
+      totalExpectedInterest += calc.interestExpected;
+    }
+    totalExpectedInterest = Math.round(totalExpectedInterest * 100) / 100;
 
     // Money received
     const loanIds = loans.map((l) => Number(l.id));
@@ -505,22 +583,27 @@ export class MongoLoanRepository {
       }
     }
 
-    const principalOutstanding = Math.max(0, totalLent - principalCollected);
+    const principalOutstanding = Math.max(0, totalPrincipalLent - principalCollected);
 
     return {
       totalLoans: loans.length,
       activeLoans,
       overdueLoans,
       completedLoans,
-      totalLent,
+      cancelledLoans,
+      totalPrincipalLent,
+      totalExpectedInterest,
+      totalExpectedRepayment: totalPrincipalLent + totalExpectedInterest,
+      totalPrincipalRecovered: principalCollected,
+      totalInterestRecovered: interestCollected,
+      totalOutstanding: principalOutstanding,
+      // Backward-compatibility aliases
+      totalLent: totalPrincipalLent,
       totalReceived,
       principalCollected,
       interestCollected,
       principalOutstanding,
-      interestOutstanding: 0,
-      totalOutstanding: principalOutstanding,
-      totalExpectedRepayment,
-    };
+    } as LoanSummary;
   }
 
   async getOverdueLoans(asOfDate?: Date | string): Promise<MappedLoan[]> {

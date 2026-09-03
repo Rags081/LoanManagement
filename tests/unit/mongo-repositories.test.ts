@@ -244,6 +244,33 @@ describe('MongoDB Repositories Unit Tests', () => {
     expect(out.principalOutstanding).toBe(10000);
   });
 
+  it('MongoLoanRepository: getLoanSummary returns properly formatted and named fields', async () => {
+    const summary = await mongoLoanRepository.getLoanSummary();
+    expect(summary.totalLoans).toBe(1);
+    expect(summary.activeLoans).toBe(1);
+    expect(summary.totalPrincipalLent).toBe(10000);
+    expect(summary.totalPrincipalRecovered).toBe(0);
+    expect(summary.totalInterestRecovered).toBe(300);
+    expect(summary.totalOutstanding).toBe(10000);
+    expect(isNaN(summary.totalPrincipalRecovered + summary.totalInterestRecovered)).toBe(false);
+  });
+
+  it('MongoLoanRepository: getLoanPayments returns payments for loan', async () => {
+    const payments = await mongoLoanRepository.getLoanPayments(1);
+    expect(payments.length).toBe(1);
+    expect(payments[0].receipt_number).toBe('PAY-001');
+    expect(payments[0].payment_amount).toBe(300);
+  });
+
+  it('MongoLoanRepository: updateStatus updates loan status and settlement date', async () => {
+    const updated = await mongoLoanRepository.updateStatus(1, 'completed', 1);
+    expect(updated.status).toBe('completed');
+    expect(updated.settlementDate).toBeTruthy();
+
+    const activeAgain = await mongoLoanRepository.updateStatus(1, 'active', 1);
+    expect(activeAgain.status).toBe('active');
+  });
+
   it('MongoPaymentRepository: findByLoan and getTotalReceivedByLoan', async () => {
     const payments = await mongoPaymentRepository.findByLoan(1);
     expect(payments.length).toBe(1);

@@ -1,7 +1,7 @@
 import React from 'react';
 import Card from '@/components/common/Card';
 import { LoanSummary } from '@/types/loan';
-import { formatCurrency } from '@/utils/formatters';
+import { formatCurrency, toSafeAmount } from '@/utils/formatters';
 import { HandCoins, Clock, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 interface LoanSummaryCardsProps {
@@ -13,31 +13,46 @@ export const LoanSummaryCards: React.FC<LoanSummaryCardsProps> = ({
   summary,
   isLoading = false,
 }) => {
+  const totalRecovered = summary
+    ? toSafeAmount(summary.totalPrincipalRecovered ?? (summary as unknown as Record<string, unknown>).principalCollected) +
+      toSafeAmount(summary.totalInterestRecovered ?? (summary as unknown as Record<string, unknown>).interestCollected)
+    : 0;
+
+  const totalPrincipalLent = summary
+    ? toSafeAmount(summary.totalPrincipalLent ?? (summary as unknown as Record<string, unknown>).totalLent)
+    : 0;
+
+  const totalOutstanding = summary
+    ? toSafeAmount(summary.totalOutstanding ?? (summary as unknown as Record<string, unknown>).principalOutstanding)
+    : 0;
+
+  const overdueCount = summary ? (summary.overdueLoans ?? 0) : 0;
+
   const cards = [
     {
       title: 'Total Principal Lent',
-      value: summary ? formatCurrency(summary.totalPrincipalLent) : '₹0',
+      value: formatCurrency(totalPrincipalLent),
       subtitle: `${summary?.totalLoans || 0} Total Loans Issued`,
       icon: <HandCoins className="w-5 h-5 text-indigo-600" />,
       bg: 'bg-indigo-50 border-indigo-100',
     },
     {
       title: 'Active Portfolio',
-      value: summary ? formatCurrency(summary.totalOutstanding) : '₹0',
+      value: formatCurrency(totalOutstanding),
       subtitle: `${summary?.activeLoans || 0} Active Loans`,
       icon: <Clock className="w-5 h-5 text-emerald-600" />,
       bg: 'bg-emerald-50 border-emerald-100',
     },
     {
       title: 'Overdue Loans',
-      value: summary?.overdueLoans.toString() || '0',
+      value: overdueCount.toString(),
       subtitle: 'Requiring immediate collection',
       icon: <AlertTriangle className="w-5 h-5 text-rose-600" />,
       bg: 'bg-rose-50 border-rose-100',
     },
     {
       title: 'Total Recovered',
-      value: summary ? formatCurrency(summary.totalPrincipalRecovered + summary.totalInterestRecovered) : '₹0',
+      value: formatCurrency(totalRecovered),
       subtitle: `${summary?.completedLoans || 0} Completed Loans`,
       icon: <CheckCircle2 className="w-5 h-5 text-blue-600" />,
       bg: 'bg-blue-50 border-blue-100',

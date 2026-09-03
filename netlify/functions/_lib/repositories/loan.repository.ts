@@ -815,6 +815,10 @@ export class LoanRepository {
     });
   }
 
+  async delete(id: number, deletedBy: number): Promise<void> {
+    return this.softDelete(id, deletedBy);
+  }
+
   async softDelete(id: number, deletedBy: number): Promise<void> {
     return withTransaction(async (conn) => {
       const existing = await this.findById(id, conn);
@@ -1031,6 +1035,30 @@ export class LoanRepository {
     `;
     const [rows] = await conn.query<RowDataPacket[]>(sql, [loanId]);
     return rows;
+  }
+
+  async getOverdueLoans(asOfDate?: Date | string, connection?: PoolConnection): Promise<MappedLoan[]> {
+    const conn = connection || getPool();
+    const today = toLocalDateString(asOfDate || new Date());
+    const sql = `
+      SELECT
+        l.*,
+        b.full_name AS borrower_name,
+        b.phone AS borrower_phone,
+        b.borrower_id AS borrower_id_code,
+        u.full_name AS creator_name
+      FROM loans l
+      LEFT JOIN borrowers b ON b.id = l.borrower_id
+      LEFT JOIN users u ON u.id = l.created_by
+      WHERE l.deleted_at IS NULL
+        AND l.due_date IS NOT NULL
+        AND l.due_date < ?
+        AND l.status IN ('active', 'overdue')
+      ORDER BY l.due_date ASC
+    `;
+    const [rows] = await conn.query<DbLoan[]>(sql, [today]);
+    const mapped = await Promise.all(rows.map((row) => this.mapLoanRow(row, conn)));
+    return mapped.filter((l) => l.totalOutstanding > 0);
   }
 }
 

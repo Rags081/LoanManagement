@@ -3,15 +3,41 @@ import { CURRENCY_SYMBOL, CURRENCY_FORMAT } from './constants';
 
 export type NumericValue = number | string | Decimal;
 
+export const toSafeAmount = (val: unknown): number => {
+  if (val === null || val === undefined || val === '') return 0;
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (val instanceof Decimal) {
+    const num = val.toNumber();
+    return isNaN(num) ? 0 : num;
+  }
+  if (typeof val === 'string') {
+    const cleaned = val.replace(/[^0-9.-]+/g, '');
+    const parsed = parseFloat(cleaned);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  if (typeof val === 'object' && val !== null) {
+    if ('toString' in val && typeof (val as { toString: () => string }).toString === 'function') {
+      const str = (val as { toString: () => string }).toString();
+      const parsed = parseFloat(str);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+  }
+  return 0;
+};
+
 export const toDecimal = (val: NumericValue | null | undefined): Decimal => {
   if (val === null || val === undefined || val === '') {
     return new Decimal(0);
   }
+  if (typeof val === 'number') {
+    return isNaN(val) ? new Decimal(0) : new Decimal(val);
+  }
   if (val instanceof Decimal) {
-    return val;
+    return isNaN(val.toNumber()) ? new Decimal(0) : val;
   }
   try {
-    return new Decimal(val);
+    const d = new Decimal(val);
+    return isNaN(d.toNumber()) ? new Decimal(0) : d;
   } catch {
     return new Decimal(0);
   }
