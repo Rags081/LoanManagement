@@ -3,6 +3,9 @@
   publish = "dist"
   functions = "netlify/functions"
 
+[build.environment]
+  SECRETS_SCAN_OMIT_PATHS = ".env.example,docs/**,backups/**,scripts/**,tests/**,.github/**"
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
