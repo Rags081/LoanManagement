@@ -64,7 +64,7 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
         currencySymbol: settings.currency_symbol || '₹',
         currencyCode: settings.currency_format || 'INR',
         dateFormat: settings.date_format || 'DD-MMM-YYYY',
-        appName: settings.app_name || 'SmartLend Portfolio Manager',
+        appName: settings.app_name || 'RagsCapital',
         updateSettings,
         resetSettings,
         reloadSettings,

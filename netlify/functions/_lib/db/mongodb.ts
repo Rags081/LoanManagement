@@ -2,12 +2,9 @@ import { MongoClient, Db, ClientSession } from 'mongodb';
 import { getDatabaseConfig } from './config';
 import dns from 'dns';
 
-// Safe DNS fallback for environments with local resolver limitations
+// Safe DNS fallback for environments with local resolver limitations (e.g. Windows SRV lookups)
 try {
-  const currentServers = dns.getServers();
-  if (!currentServers || currentServers.length === 0 || currentServers[0] === '0.0.0.0') {
-    dns.setServers(['8.8.8.8', '1.1.1.1']);
-  }
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
 } catch {
   // Ignore if custom DNS cannot be configured
 }

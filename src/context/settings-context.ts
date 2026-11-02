@@ -14,10 +14,10 @@ export interface SettingsContextType {
 }
 
 export const DEFAULT_SETTINGS_STATE: SystemSettings = {
-  app_name: 'SmartLend Portfolio Manager',
-  company_name: 'SmartLend Financial Services',
+  app_name: 'RagsCapital',
+  company_name: 'RagsCapital Financial Services',
   company_phone: '+91 9876543210',
-  company_email: 'support@smartlend.local',
+  company_email: 'support@ragscapital.local',
   company_address: 'Suite 400, Financial District, Mumbai',
   tax_number: 'GSTIN27AAAAA0000A1Z5',
   currency_symbol: '₹',

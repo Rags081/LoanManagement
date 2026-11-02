@@ -1,4 +1,4 @@
-export const APP_NAME = 'Loan Management System';
+export const APP_NAME = import.meta.env.VITE_APP_NAME || 'RagsCapital';
 export const APP_VERSION = '1.0.0';
 
 export const CURRENCY_SYMBOL = '₹';

@@ -210,4 +210,26 @@ export const calculatePeriodicAccrual = (
   return Math.round((completedMonths * monthlyInterest + remainingDays * dailyInterest) * 100) / 100;
 };
 
+/**
+ * Extracts 2-digit day string ('01' to '31') from a loan date without UTC/local timezone shifts.
+ */
+export const getLoanDayOfMonth = (
+  dateValue: string | Date | null | undefined
+): string | null => {
+  if (!dateValue) return null;
+  if (typeof dateValue === 'string') {
+    const cleanDate = dateValue.split('T')[0].split(' ')[0];
+    const parts = cleanDate.split('-');
+    if (parts.length >= 3) {
+      const day = parts[2].trim();
+      return day.padStart(2, '0');
+    }
+  }
+  if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+    return String(dateValue.getDate()).padStart(2, '0');
+  }
+  return null;
+};
+
+
 

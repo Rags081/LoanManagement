@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Authentication E2E Flow', () => {
   test('should display login page and perform login & logout', async ({ page }) => {
     await page.goto('/login');
-    await expect(page.locator('h2, h1')).toContainText(/Sign In|Login|Loan Management/i);
+    await expect(page.locator('h2, h1')).toContainText(/Sign In|Login|Loan Management|RagsCapital/i);
 
     // Fill credentials
     await page.fill('input[type="email"], input[name="email"]', 'admin@loanmanagement.com');

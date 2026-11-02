@@ -24,6 +24,14 @@ export const LoanFilters: React.FC<LoanFiltersProps> = ({
     { value: 'cancelled', label: 'Cancelled' },
   ];
 
+  const dayOptions = [
+    { value: 'all', label: 'All Days' },
+    ...Array.from({ length: 31 }, (_, i) => {
+      const day = String(i + 1).padStart(2, '0');
+      return { value: day, label: day };
+    }),
+  ];
+
   return (
     <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
@@ -65,7 +73,7 @@ export const LoanFilters: React.FC<LoanFiltersProps> = ({
         </div>
       </div>
 
-      {/* Date Range Sub-row */}
+      {/* Date Range & Day Filter Sub-row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-slate-100">
         <div>
           <label className="block text-[11px] font-semibold text-slate-500 mb-1">From Date</label>
@@ -82,6 +90,21 @@ export const LoanFilters: React.FC<LoanFiltersProps> = ({
             type="date"
             value={filters.endDate || ''}
             onChange={(e) => onFilterChange({ ...filters, endDate: e.target.value, page: 1 })}
+          />
+        </div>
+
+        <div>
+          <Select
+            label="Filter by Day"
+            options={dayOptions}
+            value={filters.dayOfMonth || 'all'}
+            onChange={(e) =>
+              onFilterChange({
+                ...filters,
+                dayOfMonth: e.target.value,
+                page: 1,
+              })
+            }
           />
         </div>
       </div>

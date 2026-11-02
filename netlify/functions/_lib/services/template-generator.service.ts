@@ -80,7 +80,7 @@ export class TemplateGeneratorService {
   async generateTemplateWorkbook(type: ImportType): Promise<Buffer> {
     const info = this.getTemplateInfo(type);
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'Loan Management System';
+    workbook.creator = 'RagsCapital';
 
     const sheet = workbook.addWorksheet('Data Import');
 

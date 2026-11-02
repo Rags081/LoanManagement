@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Card from '@/components/common/Card';
 import { ReportType } from '@/types/report';
 import { formatCurrency, formatDate } from '@/utils/formatters';
+import { APP_NAME } from '@/utils/constants';
 import { ChevronLeft, ChevronRight, FileQuestion } from 'lucide-react';
 
 interface ReportTableProps {
@@ -312,7 +313,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({
     <Card className="border border-slate-200 shadow-sm overflow-hidden">
       {/* Printable Report Header */}
       <div className="hidden print:block p-6 border-b border-slate-200">
-        <h1 className="text-xl font-bold text-slate-900 uppercase">Loan Management System</h1>
+        <h1 className="text-xl font-bold text-slate-900 uppercase">{APP_NAME}</h1>
         <h2 className="text-sm font-semibold text-slate-600 capitalize">{reportType.replace('-', ' ')}</h2>
         <p className="text-xs text-slate-400 mt-1">Generated on: {new Date().toLocaleString()} | Total Records: {data.length}</p>
       </div>

@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import loansApi from '@/api/loans';
 import Button from '@/components/common/Button';
 import {
   LoanSummaryCards,
@@ -16,6 +18,7 @@ import {
 } from '@/hooks/useLoans';
 import { LoanWithBorrower, LoanFilterParams, LoanStatus } from '@/types/loan';
 import { LoanSchemaType } from '@/utils/validation';
+import { getLoanDayOfMonth } from '@/utils/date';
 import { Plus, HandCoins } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -27,6 +30,7 @@ export const Loans: React.FC = () => {
     page: 1,
     limit: 10,
     status: 'all',
+    dayOfMonth: 'all',
   });
 
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -35,6 +39,60 @@ export const Loans: React.FC = () => {
   // Queries & Mutations
   const { data: loanListData, isLoading: isListLoading } = useLoanList(filters);
   const { data: summaryData, isLoading: isSummaryLoading } = useLoanSummary(filters);
+
+  // Filter criteria for complete dataset totals (independent of page and rows-per-page)
+  const filterCriteriaWithoutPagination = useMemo(
+    () => ({
+      status: filters.status,
+      search: filters.search,
+      startDate: filters.startDate,
+      endDate: filters.endDate,
+      dayOfMonth: filters.dayOfMonth,
+      limit: 10000,
+      page: 1,
+    }),
+    [filters.status, filters.search, filters.startDate, filters.endDate, filters.dayOfMonth]
+  );
+
+  const totalCount = loanListData?.total || 0;
+  const currentCount = loanListData?.data?.length || 0;
+  const needsAllFetch = totalCount > currentCount || (filters.dayOfMonth && filters.dayOfMonth !== 'all');
+
+  const { data: allFilteredData } = useQuery({
+    queryKey: ['loans', 'all-filtered', filterCriteriaWithoutPagination],
+    queryFn: async () => {
+      const res = await loansApi.list(filterCriteriaWithoutPagination);
+      return res.data;
+    },
+    enabled: Boolean(needsAllFetch),
+  });
+
+  const allFilteredLoans = needsAllFetch
+    ? allFilteredData?.data || loanListData?.data || []
+    : loanListData?.data || [];
+
+  const selectedDay = filters.dayOfMonth && filters.dayOfMonth !== 'all' ? filters.dayOfMonth : null;
+
+  // Complete dataset matching all active filters (including day filter)
+  const dayFilteredAllLoans = useMemo(() => {
+    if (!selectedDay) return allFilteredLoans;
+    return allFilteredLoans.filter((l) => getLoanDayOfMonth(l.loanGivenDate) === selectedDay);
+  }, [allFilteredLoans, selectedDay]);
+
+  // Total count of matching loans across all pages
+  const totalFilteredCount = selectedDay ? dayFilteredAllLoans.length : (loanListData?.total || 0);
+  const pageSize = filters.limit || 10;
+  const currentPage = filters.page || 1;
+  const totalFilteredPages = Math.max(1, Math.ceil(totalFilteredCount / pageSize));
+
+  // Current page loans
+  const displayedLoans = useMemo(() => {
+    if (selectedDay) {
+      const startIndex = (currentPage - 1) * pageSize;
+      return dayFilteredAllLoans.slice(startIndex, startIndex + pageSize);
+    }
+    return loanListData?.data || [];
+  }, [selectedDay, dayFilteredAllLoans, currentPage, pageSize, loanListData?.data]);
 
   const createMutation = useCreateLoan();
   const updateMutation = useUpdateLoan();
@@ -49,6 +107,7 @@ export const Loans: React.FC = () => {
       search: '',
       startDate: '',
       endDate: '',
+      dayOfMonth: 'all',
     });
   };
 
@@ -133,13 +192,17 @@ export const Loans: React.FC = () => {
 
       {/* Loan List Table */}
       <LoanList
-        loans={loanListData?.data || []}
-        total={loanListData?.total || 0}
-        page={loanListData?.page || 1}
-        limit={loanListData?.limit || 10}
-        totalPages={loanListData?.totalPages || 1}
+        loans={displayedLoans}
+        allLoans={dayFilteredAllLoans}
+        total={totalFilteredCount}
+        page={currentPage}
+        limit={pageSize}
+        totalPages={totalFilteredPages}
         isLoading={isListLoading}
+        dayOfMonth={filters.dayOfMonth || 'all'}
+        onDayOfMonthChange={(day) => setFilters((prev) => ({ ...prev, dayOfMonth: day, page: 1 }))}
         onPageChange={(page) => setFilters((prev) => ({ ...prev, page }))}
+        onLimitChange={(limit) => setFilters((prev) => ({ ...prev, limit, page: 1 }))}
         onEdit={handleEdit}
         onDelete={handleDelete}
         onStatusChange={handleStatusChange}

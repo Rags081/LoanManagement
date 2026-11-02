@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import Decimal from 'decimal.js';
 import Table, { Column } from '@/components/common/Table';
 import Button from '@/components/common/Button';
 import Modal from '@/components/common/Modal';
@@ -6,6 +7,7 @@ import Select from '@/components/common/Form/Select';
 import { LoanWithBorrower, LoanStatus } from '@/types/loan';
 import { LoanStatusBadge } from './LoanStatusBadge';
 import { formatCurrency, formatDate, calculateCalendarTenure } from '@/utils/formatters';
+import { calculateDynamicInterestOutstanding } from '@/utils/interestCalculation';
 import { useNavigate } from 'react-router-dom';
 import {
   Eye,
@@ -14,22 +16,27 @@ import {
   ShieldAlert,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   CheckCircle2,
   Clock,
   Calendar,
   Sparkles,
   TrendingUp,
+  SlidersHorizontal,
+  RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
 interface LoanListProps {
   loans: LoanWithBorrower[];
+  allLoans?: LoanWithBorrower[];
   total?: number;
   page?: number;
   limit?: number;
   totalPages?: number;
   isLoading?: boolean;
   onPageChange?: (page: number) => void;
+  onLimitChange?: (limit: number) => void;
   onEdit: (loan: LoanWithBorrower) => void;
   onDelete: (id: number) => void;
   onStatusChange?: (id: number, status: LoanStatus) => void;
@@ -39,21 +46,59 @@ interface LoanListProps {
     totalItems: number;
     itemsPerPage: number;
     onPageChange: (page: number) => void;
+    onLimitChange?: (limit: number) => void;
   };
+  dayOfMonth?: string;
+  onDayOfMonthChange?: (day: string) => void;
 }
+
+const COLUMN_STORAGE_KEY = 'loan_table_column_visibility';
+
+const DEFAULT_COLUMN_VISIBILITY: Record<string, boolean> = {
+  loanDate: true,
+  loanId: true,
+  borrower: true,
+  principal: true,
+  interestTerms: true,
+  principalReceived: true,
+  interestReceived: true,
+  amountReceived: true,
+  interestOutstanding: true,
+  totalOutstanding: true,
+  actualTenure: true,
+  status: true,
+  actions: true,
+};
+
+const getInitialColumnVisibility = (): Record<string, boolean> => {
+  try {
+    const saved = localStorage.getItem(COLUMN_STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return { ...DEFAULT_COLUMN_VISIBILITY, ...parsed, actions: true };
+    }
+  } catch (err) {
+    console.warn('Failed to parse column visibility preferences from localStorage', err);
+  }
+  return { ...DEFAULT_COLUMN_VISIBILITY };
+};
 
 export const LoanList: React.FC<LoanListProps> = ({
   loans,
+  allLoans,
   total,
   page,
   limit,
   totalPages,
   isLoading = false,
   onPageChange,
+  onLimitChange,
   onEdit,
   onDelete,
   onStatusChange,
   pagination,
+  dayOfMonth,
+  onDayOfMonthChange,
 }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -64,11 +109,88 @@ export const LoanList: React.FC<LoanListProps> = ({
   const [statusModalLoan, setStatusModalLoan] = useState<LoanWithBorrower | null>(null);
   const [newStatus, setNewStatus] = useState<LoanStatus>('active');
 
+  // Column Visibility State & Popover Ref
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(getInitialColumnVisibility);
+  const [isColumnDropdownOpen, setIsColumnDropdownOpen] = useState(false);
+  const columnDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (columnDropdownRef.current && !columnDropdownRef.current.contains(event.target as Node)) {
+        setIsColumnDropdownOpen(false);
+      }
+    };
+    if (isColumnDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isColumnDropdownOpen]);
+
+  const toggleColumn = (key: string) => {
+    if (key === 'actions') return; // Actions column should remain visible for existing operations
+    setColumnVisibility((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try {
+        localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(next));
+      } catch (err) {
+        console.warn('Failed to save column visibility preferences to localStorage', err);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllColumns = () => {
+    const allVisible = columns.reduce<Record<string, boolean>>((acc, col) => {
+      acc[col.key] = true;
+      return acc;
+    }, {});
+    setColumnVisibility(allVisible);
+    try {
+      localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(allVisible));
+    } catch (err) {
+      console.warn('Failed to save column visibility preferences to localStorage', err);
+    }
+  };
+
+  const handleResetColumns = () => {
+    setColumnVisibility(DEFAULT_COLUMN_VISIBILITY);
+    try {
+      localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(DEFAULT_COLUMN_VISIBILITY));
+    } catch (err) {
+      console.warn('Failed to reset column visibility preferences to localStorage', err);
+    }
+  };
+
   const curPage = pagination?.currentPage || page || 1;
-  const numPages = pagination?.totalPages || totalPages || 1;
-  const totalCount = pagination?.totalItems || total || loans.length;
+  const numPages = Math.max(1, pagination?.totalPages || totalPages || 1);
+  const totalCount = pagination?.totalItems !== undefined ? pagination.totalItems : (total !== undefined ? total : loans.length);
   const pageSize = pagination?.itemsPerPage || limit || 10;
   const handlePageChange = pagination?.onPageChange || onPageChange;
+  const handleLimitChange = pagination?.onLimitChange || onLimitChange;
+
+  // Calculate totals across the complete filtered dataset (not just visible page)
+  const datasetForTotals = allLoans && allLoans.length > 0 ? allLoans : loans;
+
+  const columnTotals = useMemo(() => {
+    let totalInterestReceived = new Decimal(0);
+    let totalAmountReceived = new Decimal(0);
+    let totalInterestOutstanding = new Decimal(0);
+
+    for (const l of datasetForTotals) {
+      totalInterestReceived = totalInterestReceived.plus(Number(l.interestReceived || 0));
+      totalAmountReceived = totalAmountReceived.plus(Number(l.totalReceived || 0));
+      const dynamicRes = calculateDynamicInterestOutstanding(l);
+      totalInterestOutstanding = totalInterestOutstanding.plus(dynamicRes.interestOutstanding);
+    }
+
+    return {
+      interestReceived: totalInterestReceived.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(),
+      amountReceived: totalAmountReceived.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(),
+      interestOutstanding: totalInterestOutstanding.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(),
+    };
+  }, [datasetForTotals]);
 
   const columns: Column<LoanWithBorrower>[] = [
     {
@@ -247,6 +369,38 @@ export const LoanList: React.FC<LoanListProps> = ({
       ),
     },
     {
+      key: 'interestOutstanding',
+      header: 'Interest Outstanding (₹)',
+      render: (loan: LoanWithBorrower) => {
+        const result = calculateDynamicInterestOutstanding(loan);
+        const isComp = loan.status === 'completed' || loan.isSettled || result.interestOutstanding === 0;
+
+        return (
+          <div>
+            {isComp ? (
+              <span className="text-xs font-medium text-slate-400">
+                {formatCurrency(0)}
+              </span>
+            ) : (
+              <div>
+                <span
+                  className={`text-xs font-black block ${
+                    result.isDurationOverOneMonth ? 'text-red-600' : 'text-slate-900'
+                  }`}
+                  title={`Total: ${formatCurrency(result.interestOutstanding)}`}
+                >
+                  {result.breakdownText}
+                </span>
+                <span className="text-[10px] text-slate-500 font-medium">
+                  ({result.unpaidElapsedDurationText})
+                </span>
+              </div>
+            )}
+          </div>
+        );
+      },
+    },
+    {
       key: 'totalOutstanding',
       header: 'Total Outstanding (₹)',
       render: (loan: LoanWithBorrower) => {
@@ -374,46 +528,310 @@ export const LoanList: React.FC<LoanListProps> = ({
     },
   ];
 
+  const visibleColumns = columns.filter((col) => columnVisibility[col.key] !== false);
+
+  const columnsWithFooter: Column<LoanWithBorrower>[] = visibleColumns.map((col, idx) => {
+    if (idx === 0) {
+      return {
+        ...col,
+        footer: (
+          <span className="font-black text-slate-900 text-xs tracking-wider uppercase">
+            TOTAL
+          </span>
+        ),
+      };
+    }
+    if (col.key === 'interestReceived') {
+      return {
+        ...col,
+        footer: (
+          <span className="font-black text-slate-900 text-xs">
+            {formatCurrency(columnTotals.interestReceived)}
+          </span>
+        ),
+      };
+    }
+    if (col.key === 'amountReceived') {
+      return {
+        ...col,
+        footer: (
+          <span className="font-black text-slate-900 text-xs">
+            {formatCurrency(columnTotals.amountReceived)}
+          </span>
+        ),
+      };
+    }
+    if (col.key === 'interestOutstanding') {
+      return {
+        ...col,
+        footer: (
+          <span className="font-black text-slate-900 text-xs">
+            {formatCurrency(columnTotals.interestOutstanding)}
+          </span>
+        ),
+      };
+    }
+    return {
+      ...col,
+      footer: null,
+    };
+  });
+
+  const renderPageNumbers = () => {
+    const pages: (number | string)[] = [];
+    if (numPages <= 5) {
+      for (let i = 1; i <= numPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (curPage > 3) pages.push('ellipsis-start');
+
+      const start = Math.max(2, curPage - 1);
+      const end = Math.min(numPages - 1, curPage + 1);
+      for (let i = start; i <= end; i++) {
+        pages.push(i);
+      }
+
+      if (curPage < numPages - 2) pages.push('ellipsis-end');
+      pages.push(numPages);
+    }
+
+    return pages.map((p, idx) => {
+      if (typeof p === 'string') {
+        return (
+          <span key={`ellipsis-${idx}`} className="px-2 py-1 text-xs text-slate-400 select-none">
+            …
+          </span>
+        );
+      }
+      const isCurrent = p === curPage;
+      return (
+        <button
+          key={p}
+          type="button"
+          onClick={() => handlePageChange && handlePageChange(p)}
+          disabled={isCurrent}
+          aria-current={isCurrent ? 'page' : undefined}
+          className={`min-w-[32px] h-8 px-2 flex items-center justify-center rounded-lg text-xs font-semibold transition-colors ${
+            isCurrent
+              ? 'bg-indigo-600 text-white shadow-sm font-bold'
+              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 hover:text-slate-900'
+          }`}
+        >
+          {p}
+        </button>
+      );
+    });
+  };
+
   return (
     <div className="space-y-4">
+      {/* Table Top Control Bar: Total loans + Column Visibility Dropdown */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
+        <div className="text-xs font-medium text-slate-500">
+          Showing <strong className="text-slate-800">{loans.length}</strong> loaded of{' '}
+          <strong className="text-slate-800">{totalCount}</strong> total loans
+        </div>
+
+        <div className="flex items-center gap-2 self-end sm:self-auto">
+          {onDayOfMonthChange && (
+            <div className="flex items-center gap-1.5">
+              <label htmlFor="table-day-filter" className="text-xs font-semibold text-slate-600 whitespace-nowrap">
+                Filter by Day:
+              </label>
+              <select
+                id="table-day-filter"
+                value={dayOfMonth || 'all'}
+                onChange={(e) => onDayOfMonthChange(e.target.value)}
+                className="text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm cursor-pointer hover:border-slate-400 transition-colors"
+              >
+                <option value="all">All Days</option>
+                {Array.from({ length: 31 }, (_, i) => {
+                  const day = String(i + 1).padStart(2, '0');
+                  return (
+                    <option key={day} value={day}>
+                      {day}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
+
+          {/* Column Visibility Dropdown */}
+          <div className="relative inline-block" ref={columnDropdownRef}>
+          <button
+            type="button"
+            id="column-visibility-button"
+            onClick={() => setIsColumnDropdownOpen((prev) => !prev)}
+            aria-expanded={isColumnDropdownOpen}
+            aria-label="Customize Column Visibility"
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${
+              isColumnDropdownOpen
+                ? 'bg-indigo-50 border-indigo-300 text-indigo-700 shadow-sm'
+                : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400'
+            }`}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
+            <span>Columns</span>
+            <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-150 ${isColumnDropdownOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          {isColumnDropdownOpen && (
+            <div
+              className="absolute right-0 mt-1.5 w-64 bg-white rounded-xl shadow-xl border border-slate-200 z-50 py-2 animate-in fade-in zoom-in-95 duration-100"
+              role="menu"
+              aria-orientation="vertical"
+              aria-labelledby="column-visibility-button"
+            >
+              <div className="px-3 pb-2 border-b border-slate-100 flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800">Customize Columns</span>
+                <span className="text-[10px] text-slate-400 font-medium">
+                  {visibleColumns.length} of {columns.length} visible
+                </span>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="px-3 py-1.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 text-[11px]">
+                <button
+                  type="button"
+                  onClick={handleSelectAllColumns}
+                  className="font-semibold text-indigo-600 hover:text-indigo-800 transition-colors"
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetColumns}
+                  className="text-slate-600 hover:text-slate-800 flex items-center gap-1 transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3 text-slate-400" />
+                  <span>Reset to Default</span>
+                </button>
+              </div>
+
+              {/* Checkboxes List */}
+              <div className="max-h-64 overflow-y-auto py-1 px-1 divide-y divide-slate-50">
+                {columns.map((col) => {
+                  const isChecked = columnVisibility[col.key] !== false;
+                  const isActions = col.key === 'actions';
+
+                  return (
+                    <label
+                      key={col.key}
+                      className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${
+                        isChecked ? 'text-slate-800 hover:bg-slate-50' : 'text-slate-400 hover:bg-slate-50'
+                      } ${isActions ? 'cursor-not-allowed opacity-80' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        disabled={isActions}
+                        onChange={() => toggleColumn(col.key)}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5"
+                      />
+                      <span className="flex-1 font-medium select-none truncate">
+                        {col.header}
+                      </span>
+                      {isActions && (
+                        <span className="text-[10px] text-slate-400 font-normal">
+                          (Required)
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <Table
-          columns={columns}
+          columns={columnsWithFooter}
           data={loans}
           keyExtractor={(item) => item.id}
           isLoading={isLoading}
           emptyMessage="No loans found. Disburse a new loan to get started."
         />
 
-        {/* Pagination Bar */}
-        {numPages > 1 && handlePageChange && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/50">
-            <div className="text-xs text-slate-500">
-              Showing {(curPage - 1) * pageSize + 1} to{' '}
-              {Math.min(curPage * pageSize, totalCount)} of {totalCount} loans
+        {/* Working Pagination Bar */}
+        {handlePageChange && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 sm:px-6 py-4 border-t border-slate-200 bg-slate-50/75">
+            {/* Record Summary & Rows-per-page Dropdown */}
+            <div className="flex flex-wrap items-center gap-4 text-xs text-slate-600">
+              <div>
+                {totalCount === 0 ? (
+                  <span>Showing 0–0 of 0 loans</span>
+                ) : (
+                  <span>
+                    Showing{' '}
+                    <strong className="text-slate-800">
+                      {(curPage - 1) * pageSize + 1}–{Math.min(curPage * pageSize, totalCount)}
+                    </strong>{' '}
+                    of <strong className="text-slate-800">{totalCount}</strong> loans
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <label htmlFor="loans-rows-per-page" className="text-slate-500 whitespace-nowrap">
+                  Rows per page:
+                </label>
+                <select
+                  id="loans-rows-per-page"
+                  value={pageSize}
+                  onChange={(e) => {
+                    const newLimit = Number(e.target.value);
+                    if (handleLimitChange) {
+                      handleLimitChange(newLimit);
+                    }
+                  }}
+                  className="text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm cursor-pointer hover:border-slate-400 transition-colors"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
+
+            {/* Navigation Controls: Previous, Page Numbers, Next */}
+            <div className="flex items-center gap-1.5">
               <Button
                 variant="outline"
                 size="sm"
-                disabled={curPage <= 1}
+                disabled={curPage <= 1 || isLoading}
                 onClick={() => handlePageChange(curPage - 1)}
                 leftIcon={<ChevronLeft className="w-4 h-4" />}
               >
                 Previous
               </Button>
-              <span className="text-xs font-semibold text-slate-700 px-2">
+
+              {/* Clickable Page Number Buttons */}
+              <div className="hidden sm:flex items-center gap-1">
+                {renderPageNumbers()}
+              </div>
+
+              <span className="text-xs font-medium text-slate-600 px-1 sm:hidden">
                 Page {curPage} of {numPages}
               </span>
+
               <Button
                 variant="outline"
                 size="sm"
-                disabled={curPage >= numPages}
+                disabled={curPage >= numPages || isLoading}
                 onClick={() => handlePageChange(curPage + 1)}
                 rightIcon={<ChevronRight className="w-4 h-4" />}
               >
                 Next
               </Button>
+
+              <span className="text-xs text-slate-500 hidden md:inline ml-2">
+                (Page {curPage} of {numPages})
+              </span>
             </div>
           </div>
         )}

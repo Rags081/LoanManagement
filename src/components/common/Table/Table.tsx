@@ -4,6 +4,7 @@ export interface Column<T> {
   key: string;
   header: string;
   render?: (item: T, index: number) => React.ReactNode;
+  footer?: React.ReactNode | ((data: T[]) => React.ReactNode);
   className?: string;
   align?: 'left' | 'center' | 'right';
 }
@@ -89,6 +90,29 @@ export function Table<T>({
             ))
           )}
         </tbody>
+        {/* Table Footer */}
+        {columns.some((column) => column.footer !== undefined) && (
+          <tfoot className="border-t-2 border-slate-300 bg-slate-100/90 text-slate-900 font-bold">
+            <tr>
+              {columns.map((column) => (
+                <td
+                  key={`footer-${column.key}`}
+                  className={`px-4 py-3 text-xs font-bold whitespace-nowrap ${
+                    column.align === 'right'
+                      ? 'text-right'
+                      : column.align === 'center'
+                      ? 'text-center'
+                      : 'text-left'
+                  } ${column.className || ''}`}
+                >
+                  {typeof column.footer === 'function'
+                    ? column.footer(data)
+                    : column.footer}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        )}
       </table>
     </div>
   );

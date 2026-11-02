@@ -3,6 +3,7 @@ import Modal from '@/components/common/Modal';
 import Button from '@/components/common/Button';
 import { PaymentWithLoan } from '@/types/payment';
 import { formatCurrency, formatDate } from '@/utils/formatters';
+import { APP_NAME } from '@/utils/constants';
 import { Printer, CheckCircle2, ShieldAlert, Building2, User, FileText } from 'lucide-react';
 
 interface PaymentReceiptProps {
@@ -46,7 +47,7 @@ export const PaymentReceipt: React.FC<PaymentReceiptProps> = ({
                 <Building2 className="w-6 h-6" />
               </div>
               <div>
-                <h2 className="text-xl font-black tracking-tight text-slate-900">LOAN MANAGEMENT SYSTEM</h2>
+                <h2 className="text-xl font-black tracking-tight text-slate-900">{APP_NAME.toUpperCase()}</h2>
                 <p className="text-xs text-slate-500 font-medium">Official Repayment Receipt & Ledger Entry</p>
               </div>
             </div>
@@ -154,7 +155,7 @@ export const PaymentReceipt: React.FC<PaymentReceiptProps> = ({
 
             <div className="text-center sm:text-right border-t border-slate-300 pt-2 min-w-[160px]">
               <p className="font-bold text-slate-800">Authorized Signatory</p>
-              <p className="text-[10px] text-slate-400">Loan Management System</p>
+              <p className="text-[10px] text-slate-400">{APP_NAME}</p>
             </div>
           </div>
         </div>

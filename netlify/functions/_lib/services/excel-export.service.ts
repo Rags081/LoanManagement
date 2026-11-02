@@ -11,7 +11,7 @@ export class ExcelExportService {
     metadata: { title: string; generatedBy?: string; filters?: Record<string, unknown> }
   ): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'Loan Management System';
+    workbook.creator = 'RagsCapital';
     workbook.created = new Date();
 
     const sheet = workbook.addWorksheet(metadata.title.slice(0, 31));
@@ -19,7 +19,7 @@ export class ExcelExportService {
     // 1. Header Banner
     sheet.mergeCells('A1:H1');
     const titleCell = sheet.getCell('A1');
-    titleCell.value = `LOAN MANAGEMENT SYSTEM - ${metadata.title.toUpperCase()}`;
+    titleCell.value = `RAGSCAPITAL - ${metadata.title.toUpperCase()}`;
     titleCell.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
     titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }; // Dark Navy
     titleCell.alignment = { vertical: 'middle', horizontal: 'center' };

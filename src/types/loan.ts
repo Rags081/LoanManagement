@@ -131,6 +131,7 @@ export interface LoanFilterParams {
   minRate?: number;
   maxRate?: number;
   search?: string;
+  dayOfMonth?: string;
 }
 
 export interface LoanListResponse {

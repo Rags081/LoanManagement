@@ -289,6 +289,10 @@ export class MongoLoanRepository {
     if (filters.interestRateType) {
       query.interest_rate_type = filters.interestRateType;
     }
+    if (filters.dayOfMonth && filters.dayOfMonth !== 'all') {
+      const d = String(filters.dayOfMonth).padStart(2, '0');
+      query.loan_given_date = { $regex: `-${d}$` };
+    }
 
     if (filters.search) {
       const pattern = new RegExp(filters.search.trim(), 'i');
@@ -554,6 +558,10 @@ export class MongoLoanRepository {
     }
     if (filters.interestRateType) {
       query.interest_rate_type = filters.interestRateType;
+    }
+    if (filters.dayOfMonth && filters.dayOfMonth !== 'all') {
+      const d = String(filters.dayOfMonth).padStart(2, '0');
+      query.loan_given_date = { $regex: `-${d}$` };
     }
 
     const loans = await db.collection(MONGO_COLLECTIONS.LOANS).find(query).toArray();

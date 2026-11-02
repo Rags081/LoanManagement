@@ -185,6 +185,8 @@ export interface LoanFilterOptions {
   minRate?: number;
   maxRate?: number;
   search?: string;
+  interestRateType?: 'monthly' | 'daily' | 'flat';
+  dayOfMonth?: string;
 }
 
 export interface LoanSummary {
@@ -550,6 +552,11 @@ export class LoanRepository {
     if (filters.maxRate !== undefined && !isNaN(filters.maxRate)) {
       conditions.push('l.interest_rate <= ?');
       params.push(filters.maxRate);
+    }
+
+    if (filters.dayOfMonth && filters.dayOfMonth !== 'all') {
+      conditions.push('DAY(l.loan_given_date) = ?');
+      params.push(Number(filters.dayOfMonth));
     }
 
     if (filters.search) {
@@ -943,6 +950,11 @@ export class LoanRepository {
     if (filters.maxRate !== undefined && !isNaN(filters.maxRate)) {
       conditions.push('l.interest_rate <= ?');
       params.push(filters.maxRate);
+    }
+
+    if (filters.dayOfMonth && filters.dayOfMonth !== 'all') {
+      conditions.push('DAY(l.loan_given_date) = ?');
+      params.push(Number(filters.dayOfMonth));
     }
 
     if (filters.search) {

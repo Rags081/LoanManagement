@@ -177,7 +177,7 @@ export class MongoSettingsRepository {
 
     return {
       metadata: {
-        system: 'Loan Management System',
+        system: 'RagsCapital',
         exportDate: new Date().toISOString(),
         version: '1.0.0',
         driver: 'mongodb',

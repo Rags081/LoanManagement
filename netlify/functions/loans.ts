@@ -41,6 +41,7 @@ export const handler = requireAuth(async (event: AuthenticatedEvent): Promise<Ha
         minRate: query.minRate ? Number(query.minRate) : undefined,
         maxRate: query.maxRate ? Number(query.maxRate) : undefined,
         search: query.search || query.q,
+        dayOfMonth: query.dayOfMonth || query.day,
       };
       const summary = await loanRepository.getLoanSummary(filters);
       return {
@@ -146,6 +147,7 @@ export const handler = requireAuth(async (event: AuthenticatedEvent): Promise<Ha
         minRate: query.minRate ? Number(query.minRate) : undefined,
         maxRate: query.maxRate ? Number(query.maxRate) : undefined,
         search: query.search || query.q,
+        dayOfMonth: query.dayOfMonth || query.day,
         page: query.page ? Number(query.page) : 1,
         limit: query.limit ? Number(query.limit) : 10,
       };
